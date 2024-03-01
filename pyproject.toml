@@ -1,0 +1,19 @@
+[project]
+name = "teanga_rs"
+version = "0.1.0"
+description = "Teanga - Rust Implementation"
+authors = [{name="John P. McCrae",email="john@mccr.ae"}]
+license = {file="LICENSE"}
+readme = "README.md"
+requires-python = ">=3.7"
+dynamic = ["version"]
+
+[build-system]
+requires = ["maturin>=1.3,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+python-source = "python"
+module-name = "teanga._rs"
+bindings = 'pyo3'
+features = ["pyo3/extension-module"]

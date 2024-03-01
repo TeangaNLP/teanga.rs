@@ -1,0 +1,100 @@
+# This workflow will install Python dependencies, run tests and lint with a single version of Python
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
+
+name: Deploy Wheels to Dev-Latest
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-linux:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v5
+      with:
+        python-version: |
+          3.8
+          3.9
+          3.10
+          3.11
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    - uses: PyO3/maturin-action@v1
+      with:
+        args: -f --release --out dist
+    - name: Update automatic release
+      uses: marvinpinto/action-automatic-releases@latest
+      with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "dev-latest-linux"
+          prerelease: true
+          title: "Latest Version (Linux)"
+          files: |
+            dist/teanga_rs-0.1.0-*.whl 
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v5
+      with:
+        python-version: |
+          3.8
+          3.9
+          3.10
+          3.11
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    - uses: PyO3/maturin-action@v1
+      with:
+        args: -f --release --out dist
+    - name: Update automatic release
+      uses: marvinpinto/action-automatic-releases@latest
+      with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "dev-latest-windows"
+          prerelease: true
+          title: "Latest Version (Windows)"
+          files: |
+            dist/teanga_rs-0.1.0-*.whl
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v5
+      with:
+        python-version: |
+          3.8
+          3.9
+          3.10
+          3.11
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    - uses: PyO3/maturin-action@v1
+      with:
+        args: -f --release --out dist
+    - name: Update automatic release
+      uses: marvinpinto/action-automatic-releases@latest
+      with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "dev-latest-macos"
+          prerelease: true
+          title: "Latest Version (MacOS)"
+          files: |
+            dist/teanga_rs-0.1.0-*.whl
