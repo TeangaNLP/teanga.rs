@@ -25,9 +25,9 @@ jobs:
           3.10
           3.11
     - uses: PyO3/maturin-action@v1
-      working-directory: ./teanga-py
       with:
         args: -f --release --out dist
+        working-directory: ./teanga-py
     - name: Update automatic release
       uses: marvinpinto/action-automatic-releases@latest
       with:
@@ -51,9 +51,9 @@ jobs:
           3.10
           3.11
     - uses: PyO3/maturin-action@v1
-      working-directory: ./teanga-py
       with:
         args: -f --release --out dist
+        working-directory: ./teanga-py
     - name: Update automatic release
       uses: marvinpinto/action-automatic-releases@latest
       with:
@@ -77,9 +77,9 @@ jobs:
           3.10
           3.11
     - uses: PyO3/maturin-action@v1
-      working-directory: ./teanga-py
       with:
         args: -f --release --out dist
+        working-directory: ./teanga-py
     - name: Update automatic release
       uses: marvinpinto/action-automatic-releases@latest
       with:
