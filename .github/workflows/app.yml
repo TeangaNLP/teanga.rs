@@ -13,6 +13,9 @@ jobs:
   build-linux:
 
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./teanga-py
 
     steps:
     - uses: actions/checkout@v3
@@ -27,7 +30,6 @@ jobs:
     - uses: PyO3/maturin-action@v1
       with:
         args: -f --release --out dist
-      working-directory: ./teanga-py
     - name: Update automatic release
       uses: marvinpinto/action-automatic-releases@latest
       with:
@@ -39,6 +41,9 @@ jobs:
             teanga-py/dist/teanga_rs-0.1.0-*.whl 
   build-windows:
     runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: ./teanga-py
 
     steps:
     - uses: actions/checkout@v3
@@ -53,7 +58,6 @@ jobs:
     - uses: PyO3/maturin-action@v1
       with:
         args: -f --release --out dist
-      working-directory: ./teanga-py
     - name: Update automatic release
       uses: marvinpinto/action-automatic-releases@latest
       with:
@@ -65,6 +69,9 @@ jobs:
             teanga-py/dist/teanga_rs-0.1.0-*.whl
   build-macos:
     runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ./teanga-py
 
     steps:
     - uses: actions/checkout@v3
@@ -79,7 +86,6 @@ jobs:
     - uses: PyO3/maturin-action@v1
       with:
         args: -f --release --out dist
-      working-directory: ./teanga-py
     - name: Update automatic release
       uses: marvinpinto/action-automatic-releases@latest
       with:
