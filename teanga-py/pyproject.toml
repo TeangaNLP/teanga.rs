@@ -3,7 +3,7 @@ name = "teanga_rs"
 version = "0.1.0"
 description = "Teanga - Rust Implementation"
 authors = [{name="John P. McCrae",email="john@mccr.ae"}]
-license = {file="LICENSE"}
+license = {file="../LICENSE"}
 readme = "README.md"
 requires-python = ">=3.7"
 dynamic = ["version"]

@@ -1,0 +1,32 @@
+[package]
+name = "teanga-py"
+version = "0.1.0"
+edition = "2021"
+include = [
+    "/pyproject.toml",
+    "/src"
+]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "teanga_py"
+crate-type = ["cdylib"]
+
+[features]
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+teanga = { path = "../teanga" }
+pyo3 = "0.19.0"
+sled = "0.34.7"
+base64 = "*"
+sha2 = "*"
+itertools = "*"
+serde = { version = "1.0.189", features = ["derive"] }
+serde_json = "1.0.107"
+serde_yaml = "0.9.25"
+thiserror = "1.0.24"
+ciborium = "0.2.1"
+
+[dev-dependencies]
+tempfile = "3.2.0"
