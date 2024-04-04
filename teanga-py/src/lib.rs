@@ -1,11 +1,11 @@
-// Purpose: Rust implementation of the TeangaDB Python module.
+// Purpose: Rust impl of the TeangaDB Python module.
 // Author: John P. McCrae
 // License: Apache 2.0
 use pyo3::prelude::*;
 use ::teanga::{DiskCorpus, LayerDesc, LayerType, DataType, Value, RawLayer, Corpus};
 use std::collections::HashMap;
 
-#[pyclass]
+#[pyclass(name="Corpus")]
 #[derive(Debug,Clone)]
 /// A corpus object
 pub struct PyDiskCorpus(DiskCorpus);
@@ -261,7 +261,7 @@ fn read_corpus_from_json_file(json : &str, path: &str) -> PyResult<PyDiskCorpus>
 
 /// A Python module implemented in Rust.
 #[pymodule]
-#[pyo3(name="_rs")]
+#[pyo3(name="teanga")]
 fn teanga(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyDiskCorpus>()?;
     m.add_function(wrap_pyfunction!(read_corpus_from_json_string, m)?)?;

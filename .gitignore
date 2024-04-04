@@ -163,3 +163,4 @@ cython_debug/
 poetry.lock
 Cargo.lock
 tmp
+**/tmp.db

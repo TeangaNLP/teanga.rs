@@ -1,5 +1,5 @@
 [project]
-name = "teanga_rs"
+name = "teanga_pyo3"
 version = "0.1.0"
 description = "Teanga - Rust Implementation"
 authors = [{name="John P. McCrae",email="john@mccr.ae"}]
@@ -14,6 +14,6 @@ build-backend = "maturin"
 
 [tool.maturin]
 python-source = "python"
-module-name = "teanga._rs"
+module-name = "teanga_pyo3.teanga"
 bindings = 'pyo3'
 features = ["pyo3/extension-module"]
