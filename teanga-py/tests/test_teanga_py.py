@@ -1,8 +1,6 @@
 import teanga_pyo3.teanga as teangadb# if this fails the Rust code is not installed
 import teanga
 
-TEANGA_DB = True
-
 def test_teangadb_installed():
     teangadb.Corpus("tmp.db")
 
