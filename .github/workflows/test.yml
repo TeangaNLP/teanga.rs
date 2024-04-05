@@ -34,6 +34,6 @@ jobs:
       run: |
         # Pytest loads `teanga` from the source folder, so we have to manually
         # copy the Rust code to the source folder to run the tests
-        # cp /opt/hostedtoolcache/Python/3.10.13/x64/lib/python3.10/site-packages/teanga_py03/* teanga_py03/
-        pip install dist/*.whl
+        cp /opt/hostedtoolcache/Python/3.10.13/x64/lib/python3.10/site-packages/teanga_py03/* teanga_py03/
+        #pip install dist/*.whl
         python -m pytest
