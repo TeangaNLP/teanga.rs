@@ -28,11 +28,17 @@ impl PyDiskCorpus {
 
     #[pyo3(name="add_layer_meta")]
     fn add_layer_meta(&mut self, name: String, layer_type: PyLayerType, 
-        on: String, data: Option<PyDataType>, values: Option<Vec<String>>, 
+        base: Option<String>, data: Option<PyDataType>, values: Option<Vec<String>>, 
         target: Option<String>, default: Option<Vec<String>>,
         uri : Option<String>) -> PyResult<()> {
-        Ok(self.0.add_layer_meta(name, layer_type.0, on, data.map(|x| x.0), values, target, default, uri)
+        Ok(self.0.add_layer_meta(name, layer_type.0, base, data.map(|x| x.0), values, target, default, uri)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?)
+    }
+
+    pub fn add_doc(&mut self, doc: HashMap<String, PyRawLayer>) -> PyResult<()> {
+        self.0.add_doc(doc.iter().map(|(k,v)| (k.clone(), v.0.clone())).collect::<HashMap<String, RawLayer>>())
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?;
+        Ok(())
     }
 
     #[getter]
@@ -40,9 +46,21 @@ impl PyDiskCorpus {
         Ok(self.0.get_meta().iter().map(|(k,v)| (k.clone(), PyLayerDesc(v.clone()))).collect())
     }
 
+    #[setter]
+    fn set_meta(&mut self, meta: HashMap<String, PyLayerDesc>) -> PyResult<()> {
+        self.0.meta = meta.iter().map(|(k,v)| (k.clone(), v.0.clone())).collect();
+        Ok(())
+    }
+
     #[getter]
     fn order(&self) -> PyResult<Vec<String>> {
         Ok(self.0.get_order().clone())
+    }
+
+    #[setter]
+    fn set_order(&mut self, order: Vec<String>) -> PyResult<()> {
+        self.0.order = order;
+        Ok(())
     }
 
 
@@ -60,8 +78,8 @@ impl PyLayerDesc {
     }
 
     #[getter]
-    fn on(&self) -> PyResult<&String> {
-        Ok(&self.0.on)
+    fn base(&self) -> PyResult<Option<String>> {
+        Ok(self.0.base.clone())
     }
 
     #[getter]
@@ -99,6 +117,19 @@ pub enum PyValue {
     String(String),
     Array(Vec<PyValue>),
     Object(HashMap<String, PyValue>)
+}
+
+impl PyValue {
+    fn val(self) -> Value {
+        match self {
+            PyValue::Bool(val) => Value::Bool(val),
+            PyValue::Int(val) => Value::Int(val),
+            PyValue::Float(val) => Value::Float(val),
+            PyValue::String(val) => Value::String(val),
+            PyValue::Array(val) => Value::Array(val.into_iter().map(PyValue::val).collect()),
+            PyValue::Object(val) => Value::Object(val.into_iter().map(|(k,v)| (k, v.val())).collect())
+        }
+    }
 }
 
 fn val_to_pyval(val: Value) -> PyValue {
@@ -145,6 +176,40 @@ impl IntoPy<PyObject> for PyRawLayer {
                     .collect::<HashMap<String, PyValue>>())
                     .collect::<Vec<HashMap<String, PyValue>>>()
                     .into_py(py)
+        }
+    }
+}
+
+impl FromPyObject<'_> for PyRawLayer {
+    fn extract(v: &PyAny) -> PyResult<Self> {
+        if let Ok(layer) = v.extract::<String>() {
+            Ok(PyRawLayer(RawLayer::CharacterLayer(layer)))
+        } else if let Ok(layer) = v.extract::<Vec<u32>>() {
+            Ok(PyRawLayer(RawLayer::L1(layer)))
+        } else if let Ok(layer) = v.extract::<Vec<(u32, u32)>>() {
+            Ok(PyRawLayer(RawLayer::L2(layer)))
+        } else if let Ok(layer) = v.extract::<Vec<(u32, u32, u32)>>() {
+            Ok(PyRawLayer(RawLayer::L3(layer)))
+        } else if let Ok(layer) = v.extract::<Vec<String>>() {
+            Ok(PyRawLayer(RawLayer::LS(layer)))
+        } else if let Ok(layer) = v.extract::<Vec<(u32, String)>>() {
+            Ok(PyRawLayer(RawLayer::L1S(layer)))
+        } else if let Ok(layer) = v.extract::<Vec<(u32, u32, String)>>() {
+            Ok(PyRawLayer(RawLayer::L2S(layer)))
+        } else if let Ok(layer) = v.extract::<Vec<HashMap<String, &PyAny>>>() {
+            let mut layer2 = Vec::new();
+            for l in layer {
+                let mut layer3 = HashMap::new();
+                for (k,v) in l {
+                    layer3.insert(k, 
+                        v.extract::<PyValue>()?.val());
+                }
+                layer2.push(layer3);
+            }
+            Ok(PyRawLayer(RawLayer::MetaLayer(layer2)))
+        } else {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                format!("Unknown layer type {}", v.extract::<String>()?)))
         }
     }
 }

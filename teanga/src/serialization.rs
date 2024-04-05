@@ -71,9 +71,9 @@ pub fn pretty_yaml_serialize<W : Write>(corpus: &DiskCorpus, mut writer: W) -> R
         writer.write_all(b":\n")?;
         writer.write_all(b"        type: ")?;
         writer.write_all(serde_yaml::to_string(&meta.layer_type)?.as_bytes())?;
-        if meta.on != "" {
-            writer.write_all(b"        on: ")?;
-            writer.write_all(serde_yaml::to_string(&meta.on)?.as_bytes())?;
+        if meta.base != Some("".to_string()) && meta.base != None {
+            writer.write_all(b"        base: ")?;
+            writer.write_all(serde_yaml::to_string(&meta.base)?.as_bytes())?;
         }
         if let Some(ref data) = meta.data {
             writer.write_all(b"        data: ")?;
@@ -188,7 +188,7 @@ mod tests {
         type: characters
     tokens:
         type: span
-        on: text
+        base: text
 _order: [\"ecWc\"]
 ecWc:
     text: This is an example
@@ -208,7 +208,7 @@ ecWc:
         },
         "tokens": {
             "type": "span",
-            "on": "text"
+            "base": "text"
         }
     },
     "_order": [
@@ -247,9 +247,9 @@ ecWc:
             .path().to_str().unwrap().to_owned();
         let mut corpus = DiskCorpus::new(&file).expect("Cannot load corpus");
         corpus.add_layer_meta("text".to_string(), crate::LayerType::characters,
-           String::new(), None, None, None, None, None).unwrap();
+           None, None, None, None, None, None).unwrap();
         corpus.add_layer_meta("tokens".to_string(), crate::LayerType::span,
-            "text".to_string(), None, None, None, None, None).unwrap();
+            Some("text".to_string()), None, None, None, None, None).unwrap();
         let doc = HashMap::from_iter(vec![("text".to_string(), RawLayer::CharacterLayer("This is an example".to_string())),
                                            ("tokens".to_string(), RawLayer::L2(vec![(0, 4), (5, 7), (8, 10), (11, 18)]))]);
         corpus.add_doc(doc).unwrap();
@@ -263,16 +263,16 @@ ecWc:
             .path().to_str().unwrap().to_owned();
         let mut corpus = DiskCorpus::new(&file).expect("Cannot load corpus");
         corpus.add_layer_meta("text".to_string(), crate::LayerType::characters,
-           String::new(), None, None, None, None, None).unwrap();
+           None, None, None, None, None, None).unwrap();
         corpus.add_layer_meta("tokens".to_string(), crate::LayerType::span,
-            "text".to_string(), None, None, None, None, None).unwrap();
+            Some("text".to_string()), None, None, None, None, None).unwrap();
         let doc = HashMap::from_iter(vec![("text".to_string(), RawLayer::CharacterLayer("This is an example".to_string())),
                                            ("tokens".to_string(), RawLayer::L2(vec![(0, 4), (5, 7), (8, 10), (11, 18)]))]);
         corpus.add_doc(doc).unwrap();
         let mut out = Vec::new();
         pretty_yaml_serialize(&corpus, &mut out).unwrap();
         assert_eq!(String::from_utf8(out).unwrap(),
-            "_meta:\n    text:\n        type: characters\n    tokens:\n        type: span\n        on: text\n_order: [\"ecWc\"]\necWc:\n    text: This is an example\n    tokens: [[0,4],[5,7],[8,10],[11,18]]\n");
+            "_meta:\n    text:\n        type: characters\n    tokens:\n        type: span\n        base: text\n_order: [\"ecWc\"]\necWc:\n    text: This is an example\n    tokens: [[0,4],[5,7],[8,10],[11,18]]\n");
     }
  
     #[test]

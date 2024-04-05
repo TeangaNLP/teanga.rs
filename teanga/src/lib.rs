@@ -27,7 +27,7 @@ pub trait Corpus {
     type LayerStorage : IntoLayer;
     type Content : DocumentContent<Self::LayerStorage>;
     fn add_layer_meta(&mut self, name: String, layer_type: LayerType, 
-        on: String, data: Option<DataType>, values: Option<Vec<String>>, 
+        base: Option<String>, data: Option<DataType>, values: Option<Vec<String>>, 
         target: Option<String>, default: Option<Vec<String>>,
         uri : Option<String>) -> TeangaResult<()>;
     fn add_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, content : DC) -> TeangaResult<String>;
@@ -68,8 +68,8 @@ pub trait StringIndex {
 #[derive(Debug,Clone)]
 /// A corpus object
 pub struct DiskCorpus {
-    meta: HashMap<String, LayerDesc>,
-    order: Vec<String>,
+    pub meta: HashMap<String, LayerDesc>,
+    pub order: Vec<String>,
     path: String
 }
 
@@ -87,9 +87,8 @@ pub struct SimpleCorpus {
 pub struct LayerDesc {
     #[serde(rename = "type")]
     pub layer_type: LayerType,
-    #[serde(default = "String::new")]
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub on: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<DataType>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -118,8 +117,7 @@ impl DiskCorpus {
         eprintln!("Opening corpus");
         for m in db.scan_prefix(&[META_PREFIX]) {
             let (name, v) = m.map_err(|e| TeangaError::DBError(e))?;
-            eprintln!("name: {}", std::str::from_utf8(name.as_ref()).unwrap());
-            let layer_desc = from_bytes::<LayerDesc>(v.as_ref())?;
+            let layer_desc = from_bytes::<LayerDesc>(v[1..].as_ref())?;
             let name = std::str::from_utf8(name.as_ref())
                 .map_err(|_| TeangaError::UTFDataError)?.to_string();
             meta.insert(name, layer_desc);
@@ -138,10 +136,10 @@ impl DiskCorpus {
     }
 
     pub fn add_layer_meta(&mut self, name: String, layer_type: LayerType, 
-        on: String, data: Option<DataType>, values: Option<Vec<String>>, 
+        base: Option<String>, data: Option<DataType>, values: Option<Vec<String>>, 
         target: Option<String>, default: Option<Vec<String>>,
         uri : Option<String>) -> TeangaResult<()> {
-        CorpusTransaction::new(self)?.add_layer_meta(name, layer_type, on, data, values, target, default, uri)
+        CorpusTransaction::new(self)?.add_layer_meta(name, layer_type, base, data, values, target, default, uri)
     }
 }
 
@@ -156,17 +154,17 @@ impl Corpus for DiskCorpus {
     ///
     /// * `name` - The name of the layer
     /// * `layer_type` - The type of the layer
-    /// * `on` - The layer that this layer is on
+    /// * `base` - The layer that this layer is on
     /// * `data` - The data file for this layer
     /// * `values` - The values for this layer
     /// * `target` - The target layer for this layer
     /// * `default` - The default values for this layer
     /// * `uri` - The URI of metadata about this layer
     fn add_layer_meta(&mut self, name: String, layer_type: LayerType, 
-        on: String, data: Option<DataType>, values: Option<Vec<String>>, 
+        base: Option<String>, data: Option<DataType>, values: Option<Vec<String>>, 
         target: Option<String>, default: Option<Vec<String>>,
         uri : Option<String>) -> TeangaResult<()> {
-        CorpusTransaction::new(self)?.add_layer_meta(name, layer_type, on, data, values, target, default, uri)
+        CorpusTransaction::new(self)?.add_layer_meta(name, layer_type, base, data, values, target, default, uri)
     }
 
     /// Add or update a document in the corpus
@@ -307,19 +305,19 @@ impl Corpus for SimpleCorpus {
     ///
     /// * `name` - The name of the layer
     /// * `layer_type` - The type of the layer
-    /// * `on` - The layer that this layer is on
+    /// * `base` - The layer that this layer is on
     /// * `data` - The data file for this layer
     /// * `values` - The values for this layer
     /// * `target` - The target layer for this layer
     /// * `default` - The default values for this layer
     /// * `uri` - The URI of metadata about this layer
     fn add_layer_meta(&mut self, name: String, layer_type: LayerType, 
-        on: String, data: Option<DataType>, values: Option<Vec<String>>, 
+        base: Option<String>, data: Option<DataType>, values: Option<Vec<String>>, 
         target: Option<String>, default: Option<Vec<String>>,
         uri : Option<String>) -> TeangaResult<()> {
         self.meta.insert(name.clone(), LayerDesc {
             layer_type,
-            on,
+            base,
             data,
             values,
             target,
@@ -465,21 +463,21 @@ impl<'a> CorpusTransaction<'a> {
     ///
     /// * `name` - The name of the layer
     /// * `layer_type` - The type of the layer
-    /// * `on` - The layer that this layer is on
+    /// * `base` - The layer that this layer is on
     /// * `data` - The data file for this layer
     /// * `values` - The values for this layer
     /// * `target` - The target layer for this layer
     /// * `default` - The default values for this layer
     pub fn add_layer_meta(&mut self, name: String, layer_type: LayerType, 
-        on: String, data: Option<DataType>, values: Option<Vec<String>>, 
+        base: Option<String>, data: Option<DataType>, values: Option<Vec<String>>, 
         target: Option<String>, default: Option<Vec<String>>,
         _uri : Option<String>) -> TeangaResult<()> {
-        if layer_type == LayerType::characters && on != "" {
+        if layer_type == LayerType::characters && base != Some("".to_string()) && base != None {
             return Err(TeangaError::ModelError(
                 format!("Layer {} of type characters cannot be based on another layer", name)))
         }
 
-        if layer_type != LayerType::characters && on == "" {
+        if layer_type != LayerType::characters && (base == Some("".to_string()) || base == None) {
             return Err(TeangaError::ModelError(
                 format!("Layer {} of type {} must be based on another layer", name, layer_type)))
         }
@@ -499,7 +497,7 @@ impl<'a> CorpusTransaction<'a> {
 
         let layer_desc = LayerDesc {
             layer_type,
-            on,
+            base,
             data,
             values,
             target,
