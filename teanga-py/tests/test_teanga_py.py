@@ -3,7 +3,6 @@ import teanga
 
 def test_teangadb_installed():
     teangadb.Corpus("tmp.db")
-    teanga.try_load_teanga_pyo3()
 
 def test_create_corpus():
     corpus = teanga.Corpus(db="tmp.db", new=True)
