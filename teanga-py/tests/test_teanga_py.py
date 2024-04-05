@@ -1,7 +1,8 @@
-import teanga_pyo3.teanga # if this fails the Rust code is not installed
+import teanga_pyo3.teanga as teangadb# if this fails the Rust code is not installed
 import teanga
 
 def test_create_corpus():
+    teangadb.Corpus("tmp.db")
     corpus = teanga.Corpus(db="tmp.db", new=True)
     corpus.add_layer_meta("text")
     print(corpus.meta["text"].base)
