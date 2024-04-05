@@ -35,7 +35,8 @@ jobs:
         python -m pip install teanga_pyo3 --no-index --find-links dist --force-reinstall
         # Pytest loads `teanga` from the source folder, so we have to manually
         # copy the Rust code to the source folder to run the tests
-        ls /opt/hostedtoolcache/Python/3.10.13/x64/lib/python3.10/site-packages/
-        cp /opt/hostedtoolcache/Python/3.10.13/x64/lib/python3.10/site-packages/teanga_py03/* teanga_py03/
+        #ls /opt/hostedtoolcache/Python/3.10.13/x64/lib/python3.10/site-packages/
+        #cp /opt/hostedtoolcache/Python/3.10.13/x64/lib/python3.10/site-packages/teanga_py03/* teanga_py03/
         #pip install dist/*.whl
+        rm -fr teanga_pyo3
         python -m pytest
