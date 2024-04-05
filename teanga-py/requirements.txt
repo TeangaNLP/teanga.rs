@@ -9,7 +9,7 @@ pluggy==1.4.0
 pytest==8.1.1
 PyYAML==6.0.1
 requests==2.31.0
-teanga @ git+https://github.com/teangaNLP/teanga2@f1db2d87e71036469947c15ab8df7c9e98de4239
+teanga @ git+https://github.com/teangaNLP/teanga2
 tomli==2.0.1
 urllib3==2.2.1
 wrapt==1.16.0
