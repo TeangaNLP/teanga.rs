@@ -73,7 +73,10 @@ impl PyDiskCorpus {
         Ok(())
     }
 
-
+    fn update_doc(&mut self, id : &str, content: HashMap<String, PyRawLayer>) -> PyResult<String> {
+        self.0.update_doc(id, content.iter().map(|(k,v)| (k.clone(), v.0.clone())).collect::<HashMap<String, RawLayer>>())
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))
+    }
 }
 
 #[pyclass]
@@ -240,6 +243,8 @@ impl FromPyObject<'_> for PyRawLayer {
             Ok(PyRawLayer(RawLayer::L1S(layer)))
         } else if let Ok(layer) = v.extract::<Vec<(u32, u32, String)>>() {
             Ok(PyRawLayer(RawLayer::L2S(layer)))
+        } else if let Ok(layer) = v.extract::<Vec<Vec<U32OrString>>>() {
+            Ok(PyRawLayer(vecus2rawlayer(layer).map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e))?))
         } else if let Ok(layer) = v.extract::<Vec<HashMap<String, &PyAny>>>() {
             let mut layer2 = Vec::new();
             for l in layer {
@@ -256,6 +261,243 @@ impl FromPyObject<'_> for PyRawLayer {
                 format!("Unknown layer type {}", v.extract::<String>()?)))
         }
     }
+}
+
+#[derive(Debug,Clone,PartialEq, FromPyObject)]
+pub enum U32OrString {
+    U32(u32),
+    String(String)
+}
+
+fn vecus2rawlayer(v : Vec<Vec<U32OrString>>) -> Result<RawLayer, String> {
+    if v.len() == 0 {
+        return Err("Empty layer".to_string());
+    }
+    if v[0].len() == 1 {
+        match v[0][0] {
+            U32OrString::U32(_) => 
+                Ok(RawLayer::L1(vecus2vecu32(v)?)),
+            U32OrString::String(_) =>
+                Ok(RawLayer::LS(vecus2vecstr(v)?))
+        }
+    } else if v[0].len() == 2 {
+        match v[0][0] {
+            U32OrString::U32(_) =>
+                match v[0][1] {
+                    U32OrString::U32(_) => 
+                        Ok(RawLayer::L2(vecus2vecu32u32(v)?)),
+                    U32OrString::String(_) => 
+                        Ok(RawLayer::L1S(vecus2vecu32str(v)?))
+                },
+            U32OrString::String(_) =>
+                Err(format!("str in first position of layer"))
+        }
+    } else if v[0].len() == 3 {
+        match v[0][0] {
+            U32OrString::U32(_) =>
+                match v[0][1] {
+                    U32OrString::U32(_) => 
+                        match v[0][2] {
+                            U32OrString::U32(_) => 
+                                Ok(RawLayer::L3(vecus2vecu32u32u32(v)?)),
+                            U32OrString::String(_) => 
+                                Ok(RawLayer::L2S(vecus2vecu32u32str(v)?)
+                                )
+                        },
+                    U32OrString::String(_) => 
+                        Err(format!("str in second position of layer"))
+                },
+            U32OrString::String(_) =>
+                Err(format!("str in first position of layer"))
+        }
+    } else if v[0].len() == 4 {
+        match v[0][0] {
+            U32OrString::U32(_) =>
+                match v[0][1] {
+                    U32OrString::U32(_) => 
+                        match v[0][2] {
+                            U32OrString::U32(_) => 
+                                match v[0][3] {
+                                    U32OrString::U32(_) => 
+                                        Err(format!("u32 in fourth position of layer")),
+                                    U32OrString::String(_) => 
+                                        Ok(RawLayer::L3S(vecus2vecu32u32u32str(v)?))
+                                },
+                            U32OrString::String(_) => 
+                                Err(format!("str in third position of layer"))
+                        },
+                    U32OrString::String(_) => 
+                        Err(format!("str in second position of layer"))
+                },
+            U32OrString::String(_) =>
+                Err(format!("str in first position of layer"))
+        }
+    } else {
+        Err("Unsupported length of layer".to_string())
+    }
+}
+
+fn vecus2vecu32(vs: Vec<Vec<U32OrString>>) -> Result<Vec<u32>, String> {
+    let mut v2 = Vec::new();
+    for v in vs {
+        if v.len() != 1 {
+            return Err("Mixed length of annotations".to_string());
+        }
+        match v[0] {
+            U32OrString::U32(x) => v2.push(x),
+            U32OrString::String(_) => 
+                return Err("Mixture of int and str".to_string())
+        }
+    }
+    Ok(v2)
+}
+
+fn vecus2vecu32u32(vs: Vec<Vec<U32OrString>>) -> Result<Vec<(u32, u32)>, String> {
+    let mut v2 = Vec::new();
+    for v in vs {
+        if v.len() != 2 {
+            return Err("Mixed length of annotations".to_string());
+        }
+        match &v[0] {
+            U32OrString::U32(x) => {
+                match &v[1] {
+                    U32OrString::U32(y) => v2.push((*x, *y)),
+                    U32OrString::String(_) => 
+                        return Err("Mixture of int and str".to_string())
+                }
+            }
+            U32OrString::String(_) => 
+                return Err("Mixture of int and str".to_string())
+        }
+    }
+    Ok(v2)
+}
+
+fn vecus2vecu32u32u32(vs: Vec<Vec<U32OrString>>) -> Result<Vec<(u32, u32, u32)>, String> {
+    let mut v2 = Vec::new();
+    for v in vs {
+        if v.len() != 3 {
+            return Err("Mixed length of annotations".to_string());
+        }
+        match &v[0] {
+            U32OrString::U32(x) => 
+                match &v[1] {
+                    U32OrString::U32(y) => 
+                        match &v[2] {
+                            U32OrString::U32(z) => v2.push((*x, *y, *z)),
+                            U32OrString::String(_) => 
+                                return Err("Mixture of int and str".to_string())
+                        },
+                    U32OrString::String(_) => 
+                        return Err("Mixture of int and str".to_string())
+                },
+            U32OrString::String(_) => 
+                return Err("Mixture of int and str".to_string())
+        }
+    }
+    Ok(v2)
+}
+
+fn vecus2vecstr(vs: Vec<Vec<U32OrString>>) -> Result<Vec<String>, String> {
+    let mut v2 = Vec::new();
+    for v in vs {
+        let mut i = v.into_iter();
+        match i.next() {
+            Some(U32OrString::U32(_)) => 
+                return Err("Mixture of int and str".to_string()),
+            Some(U32OrString::String(x)) => v2.push(x),
+            None => return Err("Mixed length of annotations".to_string())
+        }
+    }
+    Ok(v2)
+}
+
+fn vecus2vecu32str(vs: Vec<Vec<U32OrString>>) -> Result<Vec<(u32, String)>, String> {
+    let mut v2 = Vec::new();
+    for v in vs {
+        let mut i = v.into_iter();
+        match i.next() {
+            Some(U32OrString::U32(x)) => 
+                match i.next() {
+                    Some(U32OrString::U32(_)) => 
+                        return Err("Mixture of int and str".to_string()),
+                    Some(U32OrString::String(y)) => v2.push((x, y)),
+                    None => return Err("Mixed length of annotations".to_string()
+                    )
+                },
+            Some(U32OrString::String(_)) => 
+                return Err("Mixture of int and str".to_string()),
+                None => return Err("Mixed length of annotations".to_string())
+        }
+    }
+    Ok(v2)
+}
+
+fn vecus2vecu32u32str(vs: Vec<Vec<U32OrString>>) -> Result<Vec<(u32, u32, String)>, String> {
+    let mut v2 = Vec::new();
+    for v in vs {
+        let mut i = v.into_iter();
+        match i.next() {
+            Some(U32OrString::U32(x)) => {
+                match i.next() {
+                    Some(U32OrString::U32(y)) => 
+                        match i.next() {
+                            Some(U32OrString::U32(_)) => 
+                                return Err("Mixture of int and str".to_string()),
+                            Some(U32OrString::String(z)) => v2.push((x, y, z)),
+                    None => return Err("Mixed length of annotations".to_string())
+
+                        },
+                    Some(U32OrString::String(_)) => 
+                        return Err("Mixture of int and str".to_string()),
+                    None => return Err("Mixed length of annotations".to_string())
+
+                }
+            },
+            Some(U32OrString::String(_)) => 
+                return Err("Mixture of int and str".to_string()),
+                    None => return Err("Mixed length of annotations".to_string())
+
+        }
+    }
+    Ok(v2)
+}
+
+fn vecus2vecu32u32u32str(vs: Vec<Vec<U32OrString>>) -> Result<Vec<(u32, u32, u32, String)>, String> {
+    let mut v2 = Vec::new();
+    for v in vs {
+        let mut i = v.into_iter();
+        match i.next() {
+            Some(U32OrString::U32(x)) => {
+                match i.next() {
+                    Some(U32OrString::U32(y)) => 
+                        match i.next() {
+                            Some(U32OrString::U32(z)) => 
+                                match i.next() {
+                                    Some(U32OrString::U32(_)) => 
+                                        return Err("Mixture of int and str".to_string()),
+                                    Some(U32OrString::String(w)) => v2.push((x, y, z, w)),
+                    None => return Err("Mixed length of annotations".to_string())
+
+                                },
+                            Some(U32OrString::String(_)) => 
+                                return Err("Mixture of int and str".to_string()),
+                    None => return Err("Mixed length of annotations".to_string())
+
+                        },
+                    Some(U32OrString::String(_)) => 
+                        return Err("Mixture of int and str".to_string()),
+                    None => return Err("Mixed length of annotations".to_string())
+
+                }
+            },
+            Some(U32OrString::String(_)) => 
+                return Err("Mixture of int and str".to_string()),
+                    None => return Err("Mixed length of annotations".to_string())
+
+        }
+    }
+    Ok(v2)
 }
 
 #[derive(Debug,Clone,PartialEq)]

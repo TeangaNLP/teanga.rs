@@ -50,6 +50,12 @@ impl<D: IntoLayer> DocumentContent<D> for HashMap<String, D> {
     }
 }
 
+impl<D: IntoLayer> DocumentContent<D> for Vec<(String, D)> {
+    fn keys(&self) -> Vec<String> {
+        self.iter().map(|(k, _)| k.clone()).collect()
+    }
+}
+
 pub trait IntoLayer {
     fn into_layer<F : StringIndex>(self, meta : &LayerDesc, str2idx : &mut F) -> TeangaResult<Layer>;
 }
@@ -59,6 +65,19 @@ impl IntoLayer for Layer {
         Ok(self)
     }
 }
+
+impl IntoLayer for String {
+    fn into_layer<F: StringIndex>(self, _meta : &LayerDesc, _str2idx : &mut F) -> TeangaResult<Layer> {
+        Ok(Layer::Characters(self))
+    }
+}
+
+impl IntoLayer for &str {
+fn into_layer<F: StringIndex>(self, _meta : &LayerDesc, _str2idx : &mut F) -> TeangaResult<Layer> {
+        Ok(Layer::Characters(self.to_string()))
+    }
+}
+
 
 pub trait StringIndex {
     fn get_id(&mut self, s : &str) -> u32;
@@ -115,15 +134,13 @@ impl DiskCorpus {
     pub fn new(path : &str) -> TeangaResult<DiskCorpus> {
         let db = open_db(path)?;
         let mut meta = HashMap::new();
-        eprintln!("Opening corpus");
         for m in db.scan_prefix(&[META_PREFIX]) {
             let (name, v) = m.map_err(|e| TeangaError::DBError(e))?;
-            let layer_desc = from_bytes::<LayerDesc>(v[1..].as_ref())?;
-            let name = std::str::from_utf8(name.as_ref())
+            let layer_desc = from_bytes::<LayerDesc>(v.as_ref())?;
+            let name = std::str::from_utf8(name[1..].as_ref())
                 .map_err(|_| TeangaError::UTFDataError)?.to_string();
             meta.insert(name, layer_desc);
         }
-        eprintln!("Order");
         let order = match db.get(ORDER_BYTES.to_vec())
             .map_err(|e| TeangaError::DBError(e))? {
             Some(bytes) => from_bytes::<Vec<String>>(bytes.as_ref())?,
@@ -1274,5 +1291,13 @@ mod test {
         let db = sled::Config::new().temporary(true).open().unwrap();
         assert_eq!(1, gen_next_id(&db, "A"));
         assert_eq!(2, gen_next_id(&db, "B"));
+    }
+
+    #[test]
+    fn test_reopen_corpus() {
+        let mut corpus = DiskCorpus::new("tmp").unwrap();
+        corpus.add_layer_meta("text".to_string(), LayerType::characters, None, Some(DataType::String), None, None, None, HashMap::new()).unwrap();
+        corpus.add_doc(vec![("text".to_string(), "test")]).unwrap();
+        let _corpus = DiskCorpus::new("tmp");
     }
 }

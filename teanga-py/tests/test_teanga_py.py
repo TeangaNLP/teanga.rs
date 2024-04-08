@@ -1,5 +1,5 @@
 import teanga_pyo3.teanga as teangadb# if this fails the Rust code is not installed
-from teanga import Corpus, Document
+from teanga import Corpus, read_json_str, read_yaml_str
 import os
 import shutil
 
@@ -59,3 +59,101 @@ def test_to_yaml_str():
     assert (corpus.to_yaml_str() ==
         '_meta:\n    text:\n        type: characters\n\
 Kjco:\n    text: This is a document.\n')
+
+def test_to_json_str():
+    corpus = Corpus(db="tmp.db", new=True)
+    corpus.add_layer_meta("text")
+    _doc = corpus.add_doc("This is a document.")
+    assert (corpus.to_json_str() ==
+        '{"_meta":{"text":{"type":"characters"}},\
+"Kjco":{"text":"This is a document."}}')
+
+def test_read_json_str():
+    read_json_str('{"_meta": {"text": {"type": \
+"characters"}},"Kjco": {"text": "This is a document."}}', "tmp.db")
+
+def test_read_yaml_str():
+    read_yaml_str("_meta:\n  text:\n    type: characters\n\
+Kjco:\n   text: This is a document.\n", "tmp.db")
+ 
+def test_document_setitem():
+    corpus = Corpus(db="tmp.db", new=True)
+    corpus.add_layer_meta("text")
+    corpus.add_layer_meta("words", layer_type="span", base="text")
+    corpus.add_layer_meta("pos", layer_type="seq", base="words", data="string")
+    doc = corpus.add_doc("This is a document.")
+    doc["words"] = [(0,4), (5,7), (8,9), (10,18), (18,19)]
+    doc["pos"] = ["DT", "VBZ", "DT", "NN", "."]
+    assert (str(doc) ==
+        "Document('Kjco', {'text': CharacterLayer('This is a document.'), \
+'words': SpanLayer([(0, 4), (5, 7), (8, 9), (10, 18), (18, 19)]), \
+'pos': SeqLayer(['DT', 'VBZ', 'DT', 'NN', '.'])})")
+    assert (str(corpus.doc_by_id("Kjco")) ==
+        "Document('Kjco', {'text': CharacterLayer('This is a document.'), \
+'words': SpanLayer([(0, 4), (5, 7), (8, 9), (10, 18), (18, 19)]), \
+'pos': SeqLayer(['DT', 'VBZ', 'DT', 'NN', '.'])})")
+
+def test_add_layers():
+    corpus = Corpus(db="tmp.db", new=True)
+    corpus.add_layer_meta("text")
+    corpus.add_layer_meta("words", layer_type="span", base="text")
+    corpus.add_layer_meta("pos", layer_type="seq", base="words", data="string")
+    doc = corpus.add_doc("This is a document.")
+    doc.add_layers({"words": [(0,4), (5,7), (8,9), (10,18), (18,19)], \
+            "pos": ["DT", "VBZ", "DT", "NN", "."]})
+ 
+def test_text_for_layer():
+    corpus = Corpus(db="tmp.db", new=True)
+    corpus.add_layer_meta("text")
+    corpus.add_layer_meta("words", layer_type="span", base="text")
+    corpus.add_layer_meta("pos", layer_type="seq", base="words", data="string")
+    doc = corpus.add_doc("This is a document.")
+    doc.words = [[0,4], [5,7], [8,9], [10,18], [18,19]]
+    doc.pos = ["DT", "VBZ", "DT", "NN", "."]
+    list(doc.text_for_layer("text"))
+
+def test_char_layers():
+    corpus = Corpus(db="tmp.db", new=True)
+    corpus.add_layer_meta("text")
+    doc = corpus.add_doc("This")
+    assert (doc.text.data == [None, None, None, None])
+    assert (doc.text.text == ['This'])
+    assert (doc.text.indexes("text") == [(0, 1), (1, 2), (2, 3), (3, 4)])
+
+def test_seq_layers():
+    corpus = Corpus(db="tmp.db", new=True)
+    corpus.add_layer_meta("text")
+    corpus.add_layer_meta("words", layer_type="span", base="text")
+    corpus.add_layer_meta("pos", layer_type="seq", base="words", data="string")
+    doc = corpus.add_doc("This is a document.")
+    doc.words = [[0,4], [5,7], [8,9], [10,18], [18,19]]
+    doc.pos = ["DT", "VBZ", "DT", "NN", "."]
+    assert (doc.pos.data == ['DT', 'VBZ', 'DT', 'NN', '.'])
+    assert (doc.pos.text == ['This', 'is', 'a', 'document', '.'])
+    assert (doc.pos.indexes("pos") == [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)])
+    assert (doc.pos.indexes("text") == [(0, 4), (5, 7), (8, 9), (10, 18), (18, 19)])
+
+def test_span_layer():
+    corpus = Corpus(db="tmp.db", new=True)
+    corpus.add_layer_meta("text")
+    corpus.add_layer_meta("words", layer_type="span", base="text")
+    doc = corpus.add_doc("This is a document.")
+    doc.words = [[0,4], [5,7], [8,9], [10,18], [18,19]]
+    assert (doc.words.data == [None, None, None, None, None])
+    assert (doc.words.text == ['This', 'is', 'a', 'document', '.'])
+    assert (doc.words.indexes("words") == [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)])
+    assert (doc.words.indexes("text") == [(0, 4), (5, 7), (8, 9), (10, 18), (18, 19)])
+
+def test_elem_layer():
+    corpus = Corpus(db="tmp.db", new=True)
+    corpus.add_layer_meta("text")
+    corpus.add_layer_meta("words", layer_type="span", base="text")
+    corpus.add_layer_meta("is_noun", layer_type="element", base="words", data="string")
+    doc = corpus.add_doc("This is a document.")
+    doc.words = [[0,4], [5,7], [8,9], [10,18], [18,19]]
+    doc.is_noun = [[3, "Yes"]]
+    assert (doc.is_noun.data == ["Yes"])
+    assert (doc.is_noun.text == ['document'])
+    assert (doc.is_noun.indexes("is_noun") == [(0, 1)])
+    assert (doc.is_noun.indexes("words") == [(3, 4)])
+    assert (doc.is_noun.indexes("text") == [(10, 18)])
