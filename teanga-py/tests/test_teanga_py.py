@@ -53,7 +53,7 @@ def test_meta():
             "link_types=None, target=None, default=None, meta={})}")
  
 def test_to_yaml_str():
-    corpus = Corpus()
+    corpus = Corpus(db="tmp.db", new=True)
     corpus.add_layer_meta("text")
     _doc = corpus.add_doc("This is a document.")
     assert (corpus.to_yaml_str() ==

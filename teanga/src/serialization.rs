@@ -53,7 +53,6 @@ impl Serialize for DiskCorpus {
     {
         let mut map = serializer.serialize_map(Some(3))?;
         map.serialize_entry("_meta", &self.meta)?;
-        map.serialize_entry("_order", &self.order)?;
         for id in &self.order {
             eprintln!("Serializing {}", id);
             map.serialize_entry(id, &self.get_doc_by_id(id).map_err(serde::ser::Error::custom)?)?;
@@ -94,9 +93,6 @@ pub fn pretty_yaml_serialize<W : Write>(corpus: &DiskCorpus, mut writer: W) -> R
             writer.write_all(b"\n")?;
         }
     }
-    writer.write_all(b"_order: ")?;
-    writer.write_all(serde_json::to_string(&corpus.order)?.as_bytes())?;
-    writer.write_all(b"\n")?;
     for id in &corpus.order {
         writer.write_all(id.as_bytes())?;
         writer.write_all(b":\n")?;
@@ -247,9 +243,9 @@ ecWc:
             .path().to_str().unwrap().to_owned();
         let mut corpus = DiskCorpus::new(&file).expect("Cannot load corpus");
         corpus.add_layer_meta("text".to_string(), crate::LayerType::characters,
-           None, None, None, None, None, None).unwrap();
+           None, None, None, None, None, HashMap::new()).unwrap();
         corpus.add_layer_meta("tokens".to_string(), crate::LayerType::span,
-            Some("text".to_string()), None, None, None, None, None).unwrap();
+            Some("text".to_string()), None, None, None, None, HashMap::new()).unwrap();
         let doc = HashMap::from_iter(vec![("text".to_string(), RawLayer::CharacterLayer("This is an example".to_string())),
                                            ("tokens".to_string(), RawLayer::L2(vec![(0, 4), (5, 7), (8, 10), (11, 18)]))]);
         corpus.add_doc(doc).unwrap();
@@ -263,16 +259,16 @@ ecWc:
             .path().to_str().unwrap().to_owned();
         let mut corpus = DiskCorpus::new(&file).expect("Cannot load corpus");
         corpus.add_layer_meta("text".to_string(), crate::LayerType::characters,
-           None, None, None, None, None, None).unwrap();
+           None, None, None, None, None, HashMap::new()).unwrap();
         corpus.add_layer_meta("tokens".to_string(), crate::LayerType::span,
-            Some("text".to_string()), None, None, None, None, None).unwrap();
+            Some("text".to_string()), None, None, None, None, HashMap::new()).unwrap();
         let doc = HashMap::from_iter(vec![("text".to_string(), RawLayer::CharacterLayer("This is an example".to_string())),
                                            ("tokens".to_string(), RawLayer::L2(vec![(0, 4), (5, 7), (8, 10), (11, 18)]))]);
         corpus.add_doc(doc).unwrap();
         let mut out = Vec::new();
         pretty_yaml_serialize(&corpus, &mut out).unwrap();
         assert_eq!(String::from_utf8(out).unwrap(),
-            "_meta:\n    text:\n        type: characters\n    tokens:\n        type: span\n        base: text\n_order: [\"ecWc\"]\necWc:\n    text: This is an example\n    tokens: [[0,4],[5,7],[8,10],[11,18]]\n");
+            "_meta:\n    text:\n        type: characters\n    tokens:\n        type: span\n        base: text\necWc:\n    text: This is an example\n    tokens: [[0,4],[5,7],[8,10],[11,18]]\n");
     }
  
     #[test]

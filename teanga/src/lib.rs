@@ -97,6 +97,7 @@ pub struct LayerDesc {
     pub target: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<RawLayer>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub meta: HashMap<String, Value>, 
 }
