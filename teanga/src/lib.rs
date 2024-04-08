@@ -27,9 +27,9 @@ pub trait Corpus {
     type LayerStorage : IntoLayer;
     type Content : DocumentContent<Self::LayerStorage>;
     fn add_layer_meta(&mut self, name: String, layer_type: LayerType, 
-        base: Option<String>, data: Option<DataType>, values: Option<Vec<String>>, 
-        target: Option<String>, default: Option<Vec<String>>,
-        uri : Option<String>) -> TeangaResult<()>;
+        base: Option<String>, data: Option<DataType>, link_types: Option<Vec<String>>, 
+        target: Option<String>, default: Option<RawLayer>,
+        meta: HashMap<String, Value>) -> TeangaResult<()>;
     fn add_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, content : DC) -> TeangaResult<String>;
     fn update_doc<D : IntoLayer, DC: DocumentContent<D>>(&mut self, id : &str, content : DC) -> TeangaResult<String>;
     fn remove_doc(&mut self, id : &str) -> TeangaResult<()>;
@@ -92,13 +92,13 @@ pub struct LayerDesc {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<DataType>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub values: Option<Vec<String>>,
+    pub link_types: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub default: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub _uri: Option<String>
+    pub default: Option<RawLayer>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub meta: HashMap<String, Value>, 
 }
 
 
@@ -136,10 +136,10 @@ impl DiskCorpus {
     }
 
     pub fn add_layer_meta(&mut self, name: String, layer_type: LayerType, 
-        base: Option<String>, data: Option<DataType>, values: Option<Vec<String>>, 
-        target: Option<String>, default: Option<Vec<String>>,
-        uri : Option<String>) -> TeangaResult<()> {
-        CorpusTransaction::new(self)?.add_layer_meta(name, layer_type, base, data, values, target, default, uri)
+        base: Option<String>, data: Option<DataType>, link_types: Option<Vec<String>>, 
+        target: Option<String>, default: Option<RawLayer>,
+        meta: HashMap<String, Value>) -> TeangaResult<()> {
+        CorpusTransaction::new(self)?.add_layer_meta(name, layer_type, base, data, link_types, target, default, meta)
     }
 }
 
@@ -161,10 +161,10 @@ impl Corpus for DiskCorpus {
     /// * `default` - The default values for this layer
     /// * `uri` - The URI of metadata about this layer
     fn add_layer_meta(&mut self, name: String, layer_type: LayerType, 
-        base: Option<String>, data: Option<DataType>, values: Option<Vec<String>>, 
-        target: Option<String>, default: Option<Vec<String>>,
-        uri : Option<String>) -> TeangaResult<()> {
-        CorpusTransaction::new(self)?.add_layer_meta(name, layer_type, base, data, values, target, default, uri)
+        base: Option<String>, data: Option<DataType>, link_types: Option<Vec<String>>, 
+        target: Option<String>, default: Option<RawLayer>,
+        meta: HashMap<String, Value>) -> TeangaResult<()> {
+        CorpusTransaction::new(self)?.add_layer_meta(name, layer_type, base, data, link_types, target, default, meta)
     }
 
     /// Add or update a document in the corpus
@@ -312,17 +312,17 @@ impl Corpus for SimpleCorpus {
     /// * `default` - The default values for this layer
     /// * `uri` - The URI of metadata about this layer
     fn add_layer_meta(&mut self, name: String, layer_type: LayerType, 
-        base: Option<String>, data: Option<DataType>, values: Option<Vec<String>>, 
-        target: Option<String>, default: Option<Vec<String>>,
-        uri : Option<String>) -> TeangaResult<()> {
+        base: Option<String>, data: Option<DataType>, link_types: Option<Vec<String>>, 
+        target: Option<String>, default: Option<RawLayer>,
+        meta : HashMap<String, Value>) -> TeangaResult<()> {
         self.meta.insert(name.clone(), LayerDesc {
             layer_type,
             base,
             data,
-            values,
+            link_types,
             target,
             default,
-            _uri: uri
+            meta
         });
         Ok(())
     }
@@ -465,13 +465,14 @@ impl<'a> CorpusTransaction<'a> {
     /// * `layer_type` - The type of the layer
     /// * `base` - The layer that this layer is on
     /// * `data` - The data file for this layer
-    /// * `values` - The values for this layer
+    /// * `link_types` - The types for links in this layer
     /// * `target` - The target layer for this layer
     /// * `default` - The default values for this layer
+    /// * `meta` - The metadata for this layer
     pub fn add_layer_meta(&mut self, name: String, layer_type: LayerType, 
-        base: Option<String>, data: Option<DataType>, values: Option<Vec<String>>, 
-        target: Option<String>, default: Option<Vec<String>>,
-        _uri : Option<String>) -> TeangaResult<()> {
+        base: Option<String>, data: Option<DataType>, link_types: Option<Vec<String>>, 
+        target: Option<String>, default: Option<RawLayer>,
+        meta: HashMap<String, Value>) -> TeangaResult<()> {
         if layer_type == LayerType::characters && base != Some("".to_string()) && base != None {
             return Err(TeangaError::ModelError(
                 format!("Layer {} of type characters cannot be based on another layer", name)))
@@ -482,27 +483,14 @@ impl<'a> CorpusTransaction<'a> {
                 format!("Layer {} of type {} must be based on another layer", name, layer_type)))
         }
 
-        let data = match data {
-            None => None,
-            Some(DataType::String) => match values {
-                Some(ref values) => Some(DataType::Enum(values.clone())),
-                None => data
-            },
-            Some(DataType::Link) => match values {
-                Some(ref values) => Some(DataType::TypedLink(values.clone())),
-                None => data
-            },
-            _ => data
-        };
-
         let layer_desc = LayerDesc {
             layer_type,
             base,
             data,
-            values,
+            link_types,
             target,
             default,
-            _uri
+            meta
          };
 
         let mut id_bytes = Vec::new();
@@ -792,14 +780,16 @@ impl Layer {
                         Ok(RawLayer::LS(result))
                     },
                     Some(DataType::Link) => {
-                        Ok(RawLayer::L1(val.clone()))
-                    },
-                    Some(DataType::TypedLink(ref vals)) => {
-                        let mut result = Vec::new();
-                        for id in val {
-                            result.push(u32_into_raw_u32_str(*id, &DataType::TypedLink(vals.clone()))?);
+                        match meta.link_types {
+                            None => Ok(RawLayer::L1(val.clone())),
+                            Some(ref vals) => {
+                                let mut result = Vec::new();
+                                for id in val {
+                                    result.push(u32_into_raw_u32_str(*id, &vals)?);
+                                }
+                                Ok(RawLayer::L1S(result))
+                            }
                         }
-                        Ok(RawLayer::L1S(result))
                     }
                 }
             },
@@ -822,15 +812,17 @@ impl Layer {
                         Ok(RawLayer::L1S(result))
                     },
                     Some(DataType::Link) => {
-                        Ok(RawLayer::L2(val.clone()))
-                    },
-                    Some(DataType::TypedLink(ref vals)) => {
-                        let mut result = Vec::new();
-                        for (start, data) in val {
-                            let tl = u32_into_raw_u32_str(*data, &DataType::TypedLink(vals.clone()))?;
-                            result.push((*start, tl.0, tl.1));
+                        match meta.link_types {
+                            None => { Ok(RawLayer::L2(val.clone())) },
+                            Some(ref vals) => {
+                                let mut result = Vec::new();
+                                for (start, data) in val {
+                                    let tl = u32_into_raw_u32_str(*data, &vals)?;
+                                    result.push((*start, tl.0, tl.1));
+                                }
+                                Ok(RawLayer::L2S(result))
+                            }
                         }
-                        Ok(RawLayer::L2S(result))
                     }
                 }
             },
@@ -853,15 +845,17 @@ impl Layer {
                         Ok(RawLayer::L1S(result))
                     },
                     Some(DataType::Link) => {
-                        Ok(RawLayer::L2(val.clone()))
-                    },
-                    Some(DataType::TypedLink(ref vals)) => {
-                        let mut result = Vec::new();
-                        for (start, data) in val {
-                            let tl = u32_into_raw_u32_str(*data, &DataType::TypedLink(vals.clone()))?;
-                            result.push((*start, tl.0, tl.1));
+                        match meta.link_types {
+                            None => { Ok(RawLayer::L2(val.clone())) },
+                            Some(ref vals) => {
+                                let mut result = Vec::new();
+                                for (start, data) in val {
+                                    let tl = u32_into_raw_u32_str(*data, &vals)?;
+                                    result.push((*start, tl.0, tl.1));
+                                }
+                                Ok(RawLayer::L2S(result))
+                            }
                         }
-                        Ok(RawLayer::L2S(result))
                     }
                 }
             },
@@ -884,15 +878,17 @@ impl Layer {
                         Ok(RawLayer::L2S(result))
                     },
                     Some(DataType::Link) => {
-                        Ok(RawLayer::L3(val.clone()))
-                    },
-                    Some(DataType::TypedLink(ref vals)) => {
-                        let mut result = Vec::new();
-                        for (start, end, data) in val {
-                            let tl = u32_into_raw_u32_str(*data, &DataType::TypedLink(vals.clone()))?;
-                            result.push((*start, *end, tl.0, tl.1));
+                        match meta.link_types {
+                            None => { Ok(RawLayer::L3(val.clone())) },
+                            Some(ref vals) => {
+                                let mut result = Vec::new();
+                                for (start, end, data) in val {
+                                    let tl = u32_into_raw_u32_str(*data, &vals)?;
+                                    result.push((*start, *end, tl.0, tl.1));
+                                }
+                                Ok(RawLayer::L3S(result))
+                            }
                         }
-                        Ok(RawLayer::L3S(result))
                     }
                 }
             },
@@ -971,10 +967,10 @@ impl IntoLayer for RawLayer {
             },
             RawLayer::L1S(val) => {
                 match meta.data {
-                    Some(ref metadata @ DataType::TypedLink(_)) => {
+                    Some(DataType::Link) if meta.link_types.is_some() => {
                         let mut result = Vec::new();
                         for (idx, link) in val {
-                            result.push(raw_u32_str_into_u32(idx, link, &metadata)?);
+                            result.push(raw_u32_str_into_u32(idx, link, &meta.link_types.as_ref().unwrap())?);
                         }
                         Ok(Layer::Seq(result))
                     },
@@ -998,17 +994,26 @@ impl IntoLayer for RawLayer {
                 let metadata = meta.data.as_ref().ok_or_else(|| TeangaError::ModelError(
                     format!("Cannot convert data layer to {}", meta.layer_type)))?;
                 match meta.data {
-                    Some(ref metadata @ DataType::TypedLink(_)) => {
-                        let mut result = Vec::new();
-                        for (start, idx, link) in val {
-                            result.push((start, raw_u32_str_into_u32(idx, link, &metadata)?));
+                    Some(DataType::Link) => {
+                        if let Some(ref vals) = meta.link_types {
+                            let mut result = Vec::new();
+                            for (start, idx, link) in val {
+                                result.push((start, raw_u32_str_into_u32(idx, link, vals)?));
+                            }
+                            match meta.layer_type {
+                                LayerType::div => Ok(Layer::Div(result)),
+                                LayerType::element => Ok(Layer::Element(result)),
+                                _ => Err(TeangaError::ModelError(
+                                    format!("Cannot convert data layer to {}", meta.layer_type)))
+                            }
+                        } else {
+                            let mut result = Vec::new();
+                            for (start, end, data) in val {
+                                result.push((start, end, raw_str_into_u32(&data, metadata, str2idx)?));
+                            }
+                            Ok(Layer::Span(result))
                         }
-                        match meta.layer_type {
-                            LayerType::div => Ok(Layer::Div(result)),
-                            LayerType::element => Ok(Layer::Element(result)),
-                            _ => Err(TeangaError::ModelError(
-                                format!("Cannot convert data layer to {}", meta.layer_type)))
-                        }
+ 
                     },
                     _ => {
                         let mut result = Vec::new();
@@ -1020,11 +1025,15 @@ impl IntoLayer for RawLayer {
                 }
             },
             RawLayer::L3S(val) => {
-                let metadata = meta.data.as_ref().ok_or_else(|| TeangaError::ModelError(
-                    format!("Cannot convert data layer to {}", meta.layer_type)))?;
                 let mut result = Vec::new();
                 for (start, end, idx, link) in val {
-                    result.push((start, end, raw_u32_str_into_u32(idx, link, metadata)?));
+                    if let Some(ref vals) = meta.link_types {
+                        result.push((start, end, raw_u32_str_into_u32(idx, link, vals)?));
+                    } else {
+                        return Err(TeangaError::ModelError(
+                            format!("Cannot convert link layer without link types")));
+               
+                    }
                 }
                 Ok(Layer::Span(result))
             },
@@ -1077,21 +1086,15 @@ fn u32_into_raw_str<F>(val : u32, layer_type : &DataType, f : &F) -> TeangaResul
     }
 }
 
-fn u32_into_raw_u32_str(val : u32, layer_type : &DataType) -> TeangaResult<(u32,String)> {
-    match layer_type {
-        DataType::TypedLink(vals) => {
-            let n = (vals.len() as f64).log2().ceil() as u32;
-            let link_targ = val >> n;
-            let link_type = val & ((1 << n) - 1);
-            if link_type < vals.len() as u32 {
-                Ok((link_targ, vals[link_type as usize].clone()))
-            } else {
-                Err(TeangaError::ModelError(
-                        format!("Link type is out of range of enum")))
-            }
-        }
-        _ => Err(TeangaError::ModelError(
-                format!("Cannot convert {} to string", layer_type)))
+fn u32_into_raw_u32_str(val : u32, vals : &Vec<String>) -> TeangaResult<(u32,String)> {
+    let n = (vals.len() as f64).log2().ceil() as u32;
+    let link_targ = val >> n;
+    let link_type = val & ((1 << n) - 1);
+    if link_type < vals.len() as u32 {
+        Ok((link_targ, vals[link_type as usize].clone()))
+    } else {
+        Err(TeangaError::ModelError(
+                format!("Link type is out of range of enum")))
     }
 }
 
@@ -1110,17 +1113,11 @@ fn raw_str_into_u32<F : StringIndex>(val : &str, layer_type : &DataType, f : &mu
     }
 }
 
-fn raw_u32_str_into_u32(link_targ : u32, link_type : String, layer_type : &DataType) -> TeangaResult<u32> {
-    match layer_type {
-        DataType::TypedLink(vals) => {
-            match vals.iter().position(|x| *x == link_type) {
-                Some(idx) => Ok((idx as u32) << ((vals.len() as f64).log2().ceil() as u32) | link_targ),
-                None => Err(TeangaError::ModelError(
-                        format!("Cannot convert link type {} to {}", link_type, vals.iter().join(","))))
-            }
-        },
-        _ => Err(TeangaError::ModelError(
-            format!("Cannot convert string and int to {}", layer_type)))
+fn raw_u32_str_into_u32(link_targ : u32, link_type : String, vals : &Vec<String>) -> TeangaResult<u32> {
+    match vals.iter().position(|x| *x == link_type) {
+        Some(idx) => Ok((idx as u32) << ((vals.len() as f64).log2().ceil() as u32) | link_targ),
+        None => Err(TeangaError::ModelError(
+                format!("Cannot convert link type {} to {}", link_type, vals.iter().join(","))))
     }
 }
 
@@ -1171,8 +1168,7 @@ impl Display for LayerType {
 pub enum DataType {
     String,
     Enum(Vec<String>),
-    Link,
-    TypedLink(Vec<String>)
+    Link
 }
 
 impl Display for DataType {
@@ -1181,7 +1177,6 @@ impl Display for DataType {
             DataType::String => write!(f, "string"),
             DataType::Enum(vals) => write!(f, "enum({})", vals.iter().join(",")),
             DataType::Link => write!(f, "link"),
-            DataType::TypedLink(vals) => write!(f, "link({})", vals.iter().join(","))
         }
     }
 }

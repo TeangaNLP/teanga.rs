@@ -79,8 +79,8 @@ pub fn pretty_yaml_serialize<W : Write>(corpus: &DiskCorpus, mut writer: W) -> R
             writer.write_all(b"        data: ")?;
             writer.write_all(serde_yaml::to_string(data)?.as_bytes())?;
         }
-        if let Some(ref values) = meta.values {
-            writer.write_all(b"        values: ")?;
+        if let Some(ref values) = meta.link_types {
+            writer.write_all(b"        link_types: ")?;
             writer.write_all(serde_json::to_string(values)?.as_bytes())?;
             writer.write_all(b"\n")?;
         }

@@ -27,11 +27,14 @@ impl PyDiskCorpus {
     }
 
     #[pyo3(name="add_layer_meta")]
-    fn add_layer_meta(&mut self, name: String, layer_type: PyLayerType, 
-        base: Option<String>, data: Option<PyDataType>, values: Option<Vec<String>>, 
-        target: Option<String>, default: Option<Vec<String>>,
-        uri : Option<String>) -> PyResult<()> {
-        Ok(self.0.add_layer_meta(name, layer_type.0, base, data.map(|x| x.0), values, target, default, uri)
+    fn add_layer_meta(&mut self, name: String, layer_type: PyLayerType,
+        meta: HashMap<String, PyValue>,
+        base: Option<String>, data: Option<PyDataType>, link_types: Option<Vec<String>>, 
+        target: Option<String>, default: Option<PyRawLayer>) -> PyResult<()> {
+        Ok(self.0.add_layer_meta(name, layer_type.0, base, 
+                data.map(|x| x.0), link_types, target, 
+                default.map(|x| x.0),
+                meta.into_iter().map(|(k,v)| (k, v.val())).collect::<HashMap<String, Value>>())
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?)
     }
 
@@ -39,6 +42,13 @@ impl PyDiskCorpus {
         self.0.add_doc(doc.iter().map(|(k,v)| (k.clone(), v.0.clone())).collect::<HashMap<String, RawLayer>>())
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?;
         Ok(())
+    }
+
+    pub fn get_doc_by_id(&self, id : &str) -> PyResult<HashMap<String, PyRawLayer>> {
+        Ok(self.0.get_doc_by_id(id)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?
+            .into_iter().map(
+                |(k, v)| (k.clone(), PyRawLayer(v.clone()))).collect())
     }
 
     #[getter]
@@ -88,8 +98,8 @@ impl PyLayerDesc {
     }
 
     #[getter]
-    fn values(&self) -> PyResult<Option<Vec<String>>> {
-        Ok(self.0.values.clone())
+    fn link_types(&self) -> PyResult<Option<Vec<String>>> {
+        Ok(self.0.link_types.clone())
     }
 
     #[getter]
@@ -98,13 +108,47 @@ impl PyLayerDesc {
     }
 
     #[getter]
-    fn default(&self) -> PyResult<Option<Vec<String>>> {
-        Ok(self.0.default.clone())
+    fn default(&self) -> PyResult<Option<PyRawLayer>> {
+        Ok(self.0.default.clone().map(|x| PyRawLayer(x)))
     }
 
     #[getter]
-    fn _uri(&self) -> PyResult<Option<String>> {
-        Ok(self.0._uri.clone())
+    fn meta(&self) -> PyResult<HashMap<String, PyValue>> {
+        Ok(self.0.meta.iter().map(|(k,v)| (k.clone(), val_to_pyval(v.clone()))).collect())
+    }
+
+    fn __repr__(&self) -> String {
+        let data = match &self.0.data {
+            Some(DataType::Enum(v)) => format!("{:?}", v),
+            Some(DataType::String) => "string".to_string(),
+            Some(DataType::Link) => "link".to_string(),
+            None => "None".to_string()
+        };
+        let base = match &self.0.base {
+            Some(v) => format!("'{:?}'", v),
+            None => "None".to_string()
+        };
+        let target = match &self.0.target {
+            Some(v) => format!("'{:?}'", v),
+            None => "None".to_string()
+        };
+        let link_types = match &self.0.link_types {
+            Some(v) => format!("{:?}", v),
+            None => "None".to_string()
+        };
+        let default = match &self.0.default {
+            Some(v) => format!("{:?}", v),
+            None => "None".to_string()
+        };
+        let meta = format!("{{{}}}", self.0.meta.iter().map(|(k,v)| format!("'{}': {:?}", k, v)).collect::<Vec<String>>().join(", "));
+        format!("LayerDesc(layer_type='{}', base={}, data={}, link_types={}, target={}, default={}, meta={})",
+            self.0.layer_type, 
+            base,
+            data,
+            link_types,
+            target,
+            default,
+            meta)
     }
 }
 
@@ -265,9 +309,8 @@ impl IntoPy<PyObject> for PyDataType {
     fn into_py(self, py: Python) -> PyObject {
         match self.0 {
             DataType::String => "string".into_py(py),
-            DataType::Enum(_) => "string".into_py(py),
+            DataType::Enum(v) => v.into_py(py),
             DataType::Link => "link".into_py(py),
-            DataType::TypedLink(_) => "link".into_py(py)
         }
     }
 }
