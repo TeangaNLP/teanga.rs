@@ -14,6 +14,9 @@ use thiserror::Error;
 use std::fs::File;
 
 pub mod serialization;
+pub mod layer_builder;
+
+pub use layer_builder::build_layer;
 
 const DOCUMENT_PREFIX : u8 = 0x00;
 const ID2STR_PREFIX : u8 = 0x01;
