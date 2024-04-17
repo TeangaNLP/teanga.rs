@@ -1,7 +1,7 @@
 // Serialization support for Teanga DB
 // -----------------------------------------------------------------------------
 use serde::de::Visitor;
-use crate::{DiskCorpus, LayerDesc, RawLayer, CorpusTransaction};
+use crate::{LayerDesc, Layer, Document, DiskCorpus};
 use std::collections::HashMap;
 use serde::Deserializer;
 use std::cmp::min;
@@ -13,11 +13,12 @@ use thiserror::Error;
 use std::io::Write;
 use itertools::Itertools;
 use crate::Corpus;
+use crate::transaction_corpus::TransactionCorpus;
 
 struct TeangaVisitor(String);
 
 impl<'de> Visitor<'de> for TeangaVisitor {
-    type Value = DiskCorpus;
+    type Value = TransactionCorpus;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         formatter.write_str("a string representing a corpus")
@@ -26,8 +27,7 @@ impl<'de> Visitor<'de> for TeangaVisitor {
     fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
         where A: serde::de::MapAccess<'de>
     {
-        let mut corpus = DiskCorpus::new(&self.0).map_err(serde::de::Error::custom)?;
-        let mut trans = CorpusTransaction::new(&mut corpus).map_err(serde::de::Error::custom)?;
+        let mut trans = TransactionCorpus::new(&self.0).map_err(serde::de::Error::custom)?;
         while let Some(ref key) = map.next_key::<String>()? {
             if key == "_meta" {
                 let data = map.next_value::<HashMap<String, LayerDesc>>()?;
@@ -36,14 +36,14 @@ impl<'de> Visitor<'de> for TeangaVisitor {
                 let data = map.next_value::<Vec<String>>()?;
                 trans.set_order(data).map_err(serde::de::Error::custom)?;
             } else {
-                let doc = map.next_value::<HashMap<String, RawLayer>>()?;
+                let doc = map.next_value::<HashMap<String, Layer>>()?;
                 let id = trans.add_doc(doc).map_err(serde::de::Error::custom)?;
                 if id[..min(id.len(), key.len())] != key[..min(id.len(), key.len())] {
                     return Err(serde::de::Error::custom(format!("Document fails hash check: {} != {}", id, key)))
                 }
             }
         }
-        Ok(corpus)
+        Ok(trans)
     }
 }
 
@@ -53,7 +53,7 @@ impl Serialize for DiskCorpus {
     {
         let mut map = serializer.serialize_map(Some(3))?;
         map.serialize_entry("_meta", &self.meta)?;
-        for id in &self.order {
+        for id in &self.get_docs() {
             eprintln!("Serializing {}", id);
             map.serialize_entry(id, &self.get_doc_by_id(id).map_err(serde::ser::Error::custom)?)?;
         }
@@ -61,10 +61,10 @@ impl Serialize for DiskCorpus {
     }
 }
 
-pub fn pretty_yaml_serialize<W : Write>(corpus: &DiskCorpus, mut writer: W) -> Result<(), SerializeError> {
+pub fn pretty_yaml_serialize<W : Write, C : Corpus>(corpus: &C, mut writer: W) -> Result<(), SerializeError> {
     writer.write_all(b"_meta:\n")?;
-    for name in corpus.meta.keys().sorted() {
-        let meta = &corpus.meta[name];
+    for name in corpus.get_meta().keys().sorted() {
+        let meta = &corpus.get_meta()[name];
         writer.write_all(b"    ")?;
         writer.write_all(name.as_bytes())?;
         writer.write_all(b":\n")?;
@@ -93,13 +93,16 @@ pub fn pretty_yaml_serialize<W : Write>(corpus: &DiskCorpus, mut writer: W) -> R
             writer.write_all(b"\n")?;
         }
     }
-    for id in &corpus.order {
+    let mut order = Vec::new();
+    for id in &corpus.get_docs() {
         writer.write_all(id.as_bytes())?;
         writer.write_all(b":\n")?;
         let doc = corpus.get_doc_by_id(id)?;
-        for name in doc.keys().sorted() {
-            let layer = &doc[name];
-            if let RawLayer::CharacterLayer(_) = layer {
+        let doc = Document::from_content(&order, doc, &corpus.get_meta())?; 
+        order.push(doc.id.clone());
+        for name in doc.content.keys().sorted() {
+            let layer = &doc.content[name];
+            if let Layer::Characters(_) = layer {
                 writer.write_all(b"    ")?;
                 writer.write_all(name.as_bytes())?;
                 writer.write_all(b": ")?;
@@ -116,26 +119,26 @@ pub fn pretty_yaml_serialize<W : Write>(corpus: &DiskCorpus, mut writer: W) -> R
     Ok(())
 }
 
-pub fn read_corpus_from_json_string(s: &str, path : &str) -> Result<DiskCorpus, serde_json::Error> {
+pub fn read_corpus_from_json_string(s: &str, path : &str) -> Result<DiskCorpus, SerializeError> {
     let mut deserializer = serde_json::Deserializer::from_str(s);
-    deserializer.deserialize_any(TeangaVisitor(path.to_owned()))
+    Ok(deserializer.deserialize_any(TeangaVisitor(path.to_owned()))?.commit()?)
 }
 
 pub fn read_corpus_from_json_file<P: AsRef<Path>>(json_file : P, path: &str) -> Result<DiskCorpus, SerializeError> {
     let file = File::open(json_file)?;
     let mut deserializer = serde_json::Deserializer::from_reader(file);
-    Ok(deserializer.deserialize_any(TeangaVisitor(path.to_owned()))?)
+    Ok(deserializer.deserialize_any(TeangaVisitor(path.to_owned()))?.commit()?)
 }
 
-pub fn read_corpus_from_yaml_string(s: &str, path : &str) -> Result<DiskCorpus, serde_yaml::Error> {
+pub fn read_corpus_from_yaml_string(s: &str, path : &str) -> Result<DiskCorpus, SerializeError> {
     let deserializer = serde_yaml::Deserializer::from_str(s);
-    deserializer.deserialize_any(TeangaVisitor(path.to_owned()))
+    Ok(deserializer.deserialize_any(TeangaVisitor(path.to_owned()))?.commit()?)
 }
 
 pub fn read_corpus_from_yaml_file<P: AsRef<Path>>(yaml_file : P, path: &str) -> Result<DiskCorpus, SerializeError> {
     let file = File::open(yaml_file)?;
     let deserializer = serde_yaml::Deserializer::from_reader(file);
-    Ok(deserializer.deserialize_any(TeangaVisitor(path.to_owned()))?)
+    Ok(deserializer.deserialize_any(TeangaVisitor(path.to_owned()))?.commit()?)
 }
 
 pub fn write_corpus_to_json<P: AsRef<Path>>(corpus: &DiskCorpus, path: P) -> Result<(), serde_json::Error> {
@@ -246,8 +249,8 @@ ecWc:
            None, None, None, None, None, HashMap::new()).unwrap();
         corpus.add_layer_meta("tokens".to_string(), crate::LayerType::span,
             Some("text".to_string()), None, None, None, None, HashMap::new()).unwrap();
-        let doc = HashMap::from_iter(vec![("text".to_string(), RawLayer::CharacterLayer("This is an example".to_string())),
-                                           ("tokens".to_string(), RawLayer::L2(vec![(0, 4), (5, 7), (8, 10), (11, 18)]))]);
+        let doc = HashMap::from_iter(vec![("text".to_string(), Layer::Characters("This is an example".to_string())),
+                                           ("tokens".to_string(), Layer::L2(vec![(0, 4), (5, 7), (8, 10), (11, 18)]))]);
         corpus.add_doc(doc).unwrap();
         let outfile = tempfile::tempfile().expect("Cannot create temp file");
         write_corpus_to_yaml_file(&corpus, outfile).unwrap();
@@ -262,8 +265,8 @@ ecWc:
            None, None, None, None, None, HashMap::new()).unwrap();
         corpus.add_layer_meta("tokens".to_string(), crate::LayerType::span,
             Some("text".to_string()), None, None, None, None, HashMap::new()).unwrap();
-        let doc = HashMap::from_iter(vec![("text".to_string(), RawLayer::CharacterLayer("This is an example".to_string())),
-                                           ("tokens".to_string(), RawLayer::L2(vec![(0, 4), (5, 7), (8, 10), (11, 18)]))]);
+        let doc = HashMap::from_iter(vec![("text".to_string(), Layer::Characters("This is an example".to_string())),
+                                           ("tokens".to_string(), Layer::L2(vec![(0, 4), (5, 7), (8, 10), (11, 18)]))]);
         corpus.add_doc(doc).unwrap();
         let mut out = Vec::new();
         pretty_yaml_serialize(&corpus, &mut out).unwrap();
@@ -276,6 +279,12 @@ ecWc:
         let file = tempfile::tempdir().expect("Cannot create temp folder")
             .path().to_str().unwrap().to_owned();
         read_corpus_from_yaml_string("_meta:\n  text:\n    type: characters\nKjco:\n   text: This is a document.\n", &file).unwrap();
+    }
+
+    #[test]
+    fn test_2() {
+        let corpus = TransactionCorpus::new("test").unwrap();
+        corpus.commit().unwrap();
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::{Corpus, DocumentContent, IntoLayer, Value, DataType, RawLayer, LayerType, TeangaResult};
+use crate::{Corpus, DocumentContent, IntoLayer, Value, DataType, Layer, LayerType, TeangaResult};
 use std::collections::HashMap;
 
 pub fn build_layer<'a, LayerStorage : IntoLayer, Content : DocumentContent<LayerStorage>, ICorpus : Corpus<LayerStorage=LayerStorage,Content=Content>>(corpus :&'a mut ICorpus, name: &str) -> LayerBuilderImpl<'a, LayerStorage, Content, ICorpus> {
@@ -23,7 +23,7 @@ pub struct LayerBuilderImpl<'a, LayerStorage : IntoLayer, Content : DocumentCont
     data: Option<DataType>,
     link_types: Option<Vec<String>>,
     target: Option<String>,
-    default: Option<RawLayer>,
+    default: Option<Layer>,
     meta: HashMap<String, Value>
 }
 
@@ -58,7 +58,7 @@ impl<'a, LayerStorage : IntoLayer, Content : DocumentContent<LayerStorage>, ICor
         self
     }
 
-    pub fn default(mut self, default: RawLayer) -> Self {
+    pub fn default(mut self, default: Layer) -> Self {
         self.default = Some(default);
         self
     }
