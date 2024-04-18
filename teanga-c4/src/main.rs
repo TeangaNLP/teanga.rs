@@ -2,7 +2,7 @@ use clap::Parser;
 use teanga::DiskCorpus;
 use flate2;
 use serde_json::Value;
-use teanga::{Corpus, build_layer, LayerType, RawLayer, TeangaResult, DataType};
+use teanga::{Corpus, build_layer, LayerType, Layer, TeangaResult, DataType};
 use std::io::BufRead;
 use indicatif::ProgressBar;
 
@@ -22,19 +22,17 @@ fn init_corpus(corpus: &mut DiskCorpus) -> TeangaResult<()> {
     build_layer(corpus, "document")
         .base("text")
         .layer_type(LayerType::span)
-        .default(RawLayer::L1(vec![0u32]))
+        .default(Layer::L1(vec![0u32]))
         .add()?;
     build_layer(corpus, "url")
         .base("document")
         .layer_type(LayerType::div)
         .data(DataType::String)
-        .default(RawLayer::L1(vec![0u32]))
         .add()?;
     build_layer(corpus, "timestamp")
         .base("document")
         .layer_type(LayerType::div)
         .data(DataType::String)
-        .default(RawLayer::L1(vec![0u32]))
         .add()?;
     Ok(())
 }

@@ -2,7 +2,7 @@
 // Author: John P. McCrae
 // License: Apache 2.0
 use pyo3::prelude::*;
-use ::teanga::{DiskCorpus, LayerDesc, LayerType, DataType, Value, RawLayer, Corpus};
+use ::teanga::{DiskCorpus, LayerDesc, LayerType, DataType, Value, Layer, Corpus};
 use std::collections::HashMap;
 
 #[pyclass(name="Corpus")]
@@ -39,7 +39,7 @@ impl PyDiskCorpus {
     }
 
     pub fn add_doc(&mut self, doc: HashMap<String, PyRawLayer>) -> PyResult<()> {
-        self.0.add_doc(doc.iter().map(|(k,v)| (k.clone(), v.0.clone())).collect::<HashMap<String, RawLayer>>())
+        self.0.add_doc(doc.iter().map(|(k,v)| (k.clone(), v.0.clone())).collect::<HashMap<String, Layer>>())
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?;
         Ok(())
     }
@@ -74,7 +74,7 @@ impl PyDiskCorpus {
     }
 
     fn update_doc(&mut self, id : &str, content: HashMap<String, PyRawLayer>) -> PyResult<String> {
-        self.0.update_doc(id, content.iter().map(|(k,v)| (k.clone(), v.0.clone())).collect::<HashMap<String, RawLayer>>())
+        self.0.update_doc(id, content.iter().map(|(k,v)| (k.clone(), v.0.clone())).collect::<HashMap<String, Layer>>())
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))
     }
 }
@@ -204,20 +204,20 @@ impl IntoPy<PyObject> for PyValue {
 }
 
 #[derive(Debug,Clone,PartialEq)]
-pub struct PyRawLayer(RawLayer);
+pub struct PyRawLayer(Layer);
 
 impl IntoPy<PyObject> for PyRawLayer {
     fn into_py(self, py: Python) -> PyObject {
         match self.0 {
-            RawLayer::CharacterLayer(val) => val.into_py(py),
-            RawLayer::L1(val) => val.into_py(py),
-            RawLayer::L2(val) => val.into_py(py),
-            RawLayer::L3(val) => val.into_py(py),
-            RawLayer::LS(val) => val.into_py(py),
-            RawLayer::L1S(val) => val.into_py(py),
-            RawLayer::L2S(val) => val.into_py(py),
-            RawLayer::L3S(val) => val.into_py(py),
-            RawLayer::MetaLayer(val) => val.into_iter()
+            Layer::Characters(val) => val.into_py(py),
+            Layer::L1(val) => val.into_py(py),
+            Layer::L2(val) => val.into_py(py),
+            Layer::L3(val) => val.into_py(py),
+            Layer::LS(val) => val.into_py(py),
+            Layer::L1S(val) => val.into_py(py),
+            Layer::L2S(val) => val.into_py(py),
+            Layer::L3S(val) => val.into_py(py),
+            Layer::MetaLayer(val) => val.into_iter()
                 .map(|v| 
                     v.into_iter().map(|(k,v)| (k, val_to_pyval(v)))
                     .collect::<HashMap<String, PyValue>>())
@@ -230,19 +230,19 @@ impl IntoPy<PyObject> for PyRawLayer {
 impl FromPyObject<'_> for PyRawLayer {
     fn extract(v: &PyAny) -> PyResult<Self> {
         if let Ok(layer) = v.extract::<String>() {
-            Ok(PyRawLayer(RawLayer::CharacterLayer(layer)))
+            Ok(PyRawLayer(Layer::Characters(layer)))
         } else if let Ok(layer) = v.extract::<Vec<u32>>() {
-            Ok(PyRawLayer(RawLayer::L1(layer)))
+            Ok(PyRawLayer(Layer::L1(layer)))
         } else if let Ok(layer) = v.extract::<Vec<(u32, u32)>>() {
-            Ok(PyRawLayer(RawLayer::L2(layer)))
+            Ok(PyRawLayer(Layer::L2(layer)))
         } else if let Ok(layer) = v.extract::<Vec<(u32, u32, u32)>>() {
-            Ok(PyRawLayer(RawLayer::L3(layer)))
+            Ok(PyRawLayer(Layer::L3(layer)))
         } else if let Ok(layer) = v.extract::<Vec<String>>() {
-            Ok(PyRawLayer(RawLayer::LS(layer)))
+            Ok(PyRawLayer(Layer::LS(layer)))
         } else if let Ok(layer) = v.extract::<Vec<(u32, String)>>() {
-            Ok(PyRawLayer(RawLayer::L1S(layer)))
+            Ok(PyRawLayer(Layer::L1S(layer)))
         } else if let Ok(layer) = v.extract::<Vec<(u32, u32, String)>>() {
-            Ok(PyRawLayer(RawLayer::L2S(layer)))
+            Ok(PyRawLayer(Layer::L2S(layer)))
         } else if let Ok(layer) = v.extract::<Vec<Vec<U32OrString>>>() {
             Ok(PyRawLayer(vecus2rawlayer(layer).map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e))?))
         } else if let Ok(layer) = v.extract::<Vec<HashMap<String, &PyAny>>>() {
@@ -255,7 +255,7 @@ impl FromPyObject<'_> for PyRawLayer {
                 }
                 layer2.push(layer3);
             }
-            Ok(PyRawLayer(RawLayer::MetaLayer(layer2)))
+            Ok(PyRawLayer(Layer::MetaLayer(layer2)))
         } else {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
                 format!("Unknown layer type {}", v.extract::<String>()?)))
@@ -269,25 +269,25 @@ pub enum U32OrString {
     String(String)
 }
 
-fn vecus2rawlayer(v : Vec<Vec<U32OrString>>) -> Result<RawLayer, String> {
+fn vecus2rawlayer(v : Vec<Vec<U32OrString>>) -> Result<Layer, String> {
     if v.len() == 0 {
         return Err("Empty layer".to_string());
     }
     if v[0].len() == 1 {
         match v[0][0] {
             U32OrString::U32(_) => 
-                Ok(RawLayer::L1(vecus2vecu32(v)?)),
+                Ok(Layer::L1(vecus2vecu32(v)?)),
             U32OrString::String(_) =>
-                Ok(RawLayer::LS(vecus2vecstr(v)?))
+                Ok(Layer::LS(vecus2vecstr(v)?))
         }
     } else if v[0].len() == 2 {
         match v[0][0] {
             U32OrString::U32(_) =>
                 match v[0][1] {
                     U32OrString::U32(_) => 
-                        Ok(RawLayer::L2(vecus2vecu32u32(v)?)),
+                        Ok(Layer::L2(vecus2vecu32u32(v)?)),
                     U32OrString::String(_) => 
-                        Ok(RawLayer::L1S(vecus2vecu32str(v)?))
+                        Ok(Layer::L1S(vecus2vecu32str(v)?))
                 },
             U32OrString::String(_) =>
                 Err(format!("str in first position of layer"))
@@ -299,9 +299,9 @@ fn vecus2rawlayer(v : Vec<Vec<U32OrString>>) -> Result<RawLayer, String> {
                     U32OrString::U32(_) => 
                         match v[0][2] {
                             U32OrString::U32(_) => 
-                                Ok(RawLayer::L3(vecus2vecu32u32u32(v)?)),
+                                Ok(Layer::L3(vecus2vecu32u32u32(v)?)),
                             U32OrString::String(_) => 
-                                Ok(RawLayer::L2S(vecus2vecu32u32str(v)?)
+                                Ok(Layer::L2S(vecus2vecu32u32str(v)?)
                                 )
                         },
                     U32OrString::String(_) => 
@@ -321,7 +321,7 @@ fn vecus2rawlayer(v : Vec<Vec<U32OrString>>) -> Result<RawLayer, String> {
                                     U32OrString::U32(_) => 
                                         Err(format!("u32 in fourth position of layer")),
                                     U32OrString::String(_) => 
-                                        Ok(RawLayer::L3S(vecus2vecu32u32u32str(v)?))
+                                        Ok(Layer::L3S(vecus2vecu32u32u32str(v)?))
                                 },
                             U32OrString::String(_) => 
                                 Err(format!("str in third position of layer"))

@@ -1,7 +1,7 @@
 // Serialization support for Teanga DB
 // -----------------------------------------------------------------------------
 use serde::de::Visitor;
-use crate::{DiskCorpus, LayerDesc, RawLayer, CorpusTransaction};
+use crate::{DiskCorpus, LayerDesc, Layer, CorpusTransaction};
 use std::collections::HashMap;
 use serde::Deserializer;
 use std::cmp::min;
@@ -36,7 +36,7 @@ impl<'de> Visitor<'de> for TeangaVisitor {
                 let data = map.next_value::<Vec<String>>()?;
                 trans.set_order(data).map_err(serde::de::Error::custom)?;
             } else {
-                let doc = map.next_value::<HashMap<String, RawLayer>>()?;
+                let doc = map.next_value::<HashMap<String, Layer>>()?;
                 let id = trans.add_doc(doc).map_err(serde::de::Error::custom)?;
                 if id[..min(id.len(), key.len())] != key[..min(id.len(), key.len())] {
                     return Err(serde::de::Error::custom(format!("Document fails hash check: {} != {}", id, key)))
@@ -99,7 +99,7 @@ pub fn pretty_yaml_serialize<W : Write>(corpus: &DiskCorpus, mut writer: W) -> R
         let doc = corpus.get_doc_by_id(id)?;
         for name in doc.keys().sorted() {
             let layer = &doc[name];
-            if let RawLayer::CharacterLayer(_) = layer {
+            if let Layer::Characters(_) = layer {
                 writer.write_all(b"    ")?;
                 writer.write_all(name.as_bytes())?;
                 writer.write_all(b": ")?;
@@ -246,8 +246,8 @@ ecWc:
            None, None, None, None, None, HashMap::new()).unwrap();
         corpus.add_layer_meta("tokens".to_string(), crate::LayerType::span,
             Some("text".to_string()), None, None, None, None, HashMap::new()).unwrap();
-        let doc = HashMap::from_iter(vec![("text".to_string(), RawLayer::CharacterLayer("This is an example".to_string())),
-                                           ("tokens".to_string(), RawLayer::L2(vec![(0, 4), (5, 7), (8, 10), (11, 18)]))]);
+        let doc = HashMap::from_iter(vec![("text".to_string(), Layer::Characters("This is an example".to_string())),
+                                           ("tokens".to_string(), Layer::L2(vec![(0, 4), (5, 7), (8, 10), (11, 18)]))]);
         corpus.add_doc(doc).unwrap();
         let outfile = tempfile::tempfile().expect("Cannot create temp file");
         write_corpus_to_yaml_file(&corpus, outfile).unwrap();
@@ -262,8 +262,8 @@ ecWc:
            None, None, None, None, None, HashMap::new()).unwrap();
         corpus.add_layer_meta("tokens".to_string(), crate::LayerType::span,
             Some("text".to_string()), None, None, None, None, HashMap::new()).unwrap();
-        let doc = HashMap::from_iter(vec![("text".to_string(), RawLayer::CharacterLayer("This is an example".to_string())),
-                                           ("tokens".to_string(), RawLayer::L2(vec![(0, 4), (5, 7), (8, 10), (11, 18)]))]);
+        let doc = HashMap::from_iter(vec![("text".to_string(), Layer::Characters("This is an example".to_string())),
+                                           ("tokens".to_string(), Layer::L2(vec![(0, 4), (5, 7), (8, 10), (11, 18)]))]);
         corpus.add_doc(doc).unwrap();
         let mut out = Vec::new();
         pretty_yaml_serialize(&corpus, &mut out).unwrap();
