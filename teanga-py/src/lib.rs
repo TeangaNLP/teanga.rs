@@ -44,6 +44,13 @@ impl PyDiskCorpus {
         Ok(())
     }
 
+    pub fn add_docs(&mut self, docs: Vec<HashMap<String, PyRawLayer>>) -> PyResult<()> {
+        self.0.add_docs(docs.into_iter().map(|doc| doc.iter().map(|(k,v)| (k.clone(), v.0.clone())).collect::<HashMap<String, Layer>>())
+            .collect::<Vec<HashMap<String, Layer>>>())
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?;
+        Ok(())
+    }   
+
     pub fn get_doc_by_id(&self, id : &str) -> PyResult<HashMap<String, PyRawLayer>> {
         Ok(self.0.get_doc_by_id(id)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?

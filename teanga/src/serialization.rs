@@ -1,7 +1,7 @@
 // Serialization support for Teanga DB
 // -----------------------------------------------------------------------------
 use serde::de::Visitor;
-use crate::{DiskCorpus, LayerDesc, Layer, CorpusTransaction};
+use crate::{DiskCorpus, LayerDesc, Layer, TransactionCorpus};
 use std::collections::HashMap;
 use serde::Deserializer;
 use std::cmp::min;
@@ -26,15 +26,14 @@ impl<'de> Visitor<'de> for TeangaVisitor {
     fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
         where A: serde::de::MapAccess<'de>
     {
-        let mut corpus = DiskCorpus::new(&self.0).map_err(serde::de::Error::custom)?;
-        let mut trans = CorpusTransaction::new(&mut corpus).map_err(serde::de::Error::custom)?;
+        let mut trans = TransactionCorpus::new(&self.0).map_err(serde::de::Error::custom)?;
         while let Some(ref key) = map.next_key::<String>()? {
             if key == "_meta" {
                 let data = map.next_value::<HashMap<String, LayerDesc>>()?;
-                trans.set_meta(data).map_err(serde::de::Error::custom)?;
+                trans.set_meta(data);
             } else if key == "_order" {
                 let data = map.next_value::<Vec<String>>()?;
-                trans.set_order(data).map_err(serde::de::Error::custom)?;
+                trans.set_order(data);
             } else {
                 let doc = map.next_value::<HashMap<String, Layer>>()?;
                 let id = trans.add_doc(doc).map_err(serde::de::Error::custom)?;
@@ -43,7 +42,7 @@ impl<'de> Visitor<'de> for TeangaVisitor {
                 }
             }
         }
-        Ok(corpus)
+        Ok(trans.commit().map_err(serde::de::Error::custom)?)
     }
 }
 

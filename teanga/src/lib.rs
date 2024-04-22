@@ -15,7 +15,11 @@ use std::fs::File;
 
 pub mod serialization;
 pub mod layer_builder;
+pub mod disk_corpus;
+pub mod transaction_corpus;
 
+pub use disk_corpus::DiskCorpus;
+pub use transaction_corpus::TransactionCorpus;
 pub use layer_builder::build_layer;
 
 const DOCUMENT_PREFIX : u8 = 0x00;
@@ -84,15 +88,6 @@ fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
         Ok(Layer::Characters(self.to_string()))
     }
 }
-
-#[derive(Debug,Clone)]
-/// A corpus object
-pub struct DiskCorpus {
-    pub meta: HashMap<String, LayerDesc>,
-    pub order: Vec<String>,
-    path: String
-}
-
 #[derive(Debug, Clone)]
 /// An in-memory corpus object
 pub struct SimpleCorpus {
@@ -121,175 +116,34 @@ pub struct LayerDesc {
     pub meta: HashMap<String, Value>, 
 }
 
-
-impl DiskCorpus {
-    /// Create a new corpus
-    ///
-    /// # Arguments
-    /// * `path` - The path to the database
-    ///
-    /// # Returns
-    /// A new corpus object
-    ///
-    pub fn new(path : &str) -> TeangaResult<DiskCorpus> {
-        let db = open_db(path)?;
-        let mut meta = HashMap::new();
-        for m in db.scan_prefix(&[META_PREFIX]) {
-            let (name, v) = m.map_err(|e| TeangaError::DBError(e))?;
-            let layer_desc = from_bytes::<LayerDesc>(v.as_ref())?;
-            let name = std::str::from_utf8(name[1..].as_ref())
-                .map_err(|_| TeangaError::UTFDataError)?.to_string();
-            meta.insert(name, layer_desc);
-        }
-        let order = match db.get(ORDER_BYTES.to_vec())
-            .map_err(|e| TeangaError::DBError(e))? {
-            Some(bytes) => from_bytes::<Vec<String>>(bytes.as_ref())?,
-            None => Vec::new()
-        };
-        Ok(DiskCorpus {
-            meta,
-            order,
-            path: path.to_string()
-        })
-    }
-
-    pub fn add_layer_meta(&mut self, name: String, layer_type: LayerType, 
+impl LayerDesc {
+    fn new(name: &str, layer_type: LayerType, 
         base: Option<String>, data: Option<DataType>, link_types: Option<Vec<String>>, 
         target: Option<String>, default: Option<Layer>,
-        meta: HashMap<String, Value>) -> TeangaResult<()> {
-        CorpusTransaction::new(self)?.add_layer_meta(name, layer_type, base, data, link_types, target, default, meta)
-    }
+        meta: HashMap<String, Value>) -> TeangaResult<LayerDesc> {
+        if layer_type == LayerType::characters && base != Some("".to_string()) && base != None {
+            return Err(TeangaError::ModelError(
+                    format!("Layer {} of type characters cannot be based on another layer", name)))
+        }
 
-    pub fn transaction<'a>(&'a mut self) -> TeangaResult<impl Corpus + 'a> {
-        CorpusTransaction::new(self)
+        if layer_type != LayerType::characters && (base == Some("".to_string()) || base == None) {
+            return Err(TeangaError::ModelError(
+                format!("Layer {} of type {} must be based on another layer", name, layer_type)))
+        }
+
+        Ok(LayerDesc {
+            layer_type,
+            base,
+            data,
+            link_types,
+            target,
+            default,
+            meta
+         })
     }
 }
 
 
-impl Corpus for DiskCorpus {
-    type LayerStorage = Layer;
-    type Content = HashMap<String, Layer>;
-
-    /// Add a layer to the corpus
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the layer
-    /// * `layer_type` - The type of the layer
-    /// * `base` - The layer that this layer is on
-    /// * `data` - The data file for this layer
-    /// * `values` - The values for this layer
-    /// * `target` - The target layer for this layer
-    /// * `default` - The default values for this layer
-    /// * `uri` - The URI of metadata about this layer
-    fn add_layer_meta(&mut self, name: String, layer_type: LayerType, 
-        base: Option<String>, data: Option<DataType>, link_types: Option<Vec<String>>, 
-        target: Option<String>, default: Option<Layer>,
-        meta: HashMap<String, Value>) -> TeangaResult<()> {
-        CorpusTransaction::new(self)?.add_layer_meta(name, layer_type, base, data, link_types, target, default, meta)
-    }
-
-    /// Add or update a document in the corpus
-    ///
-    /// # Arguments
-    ///
-    /// * `content` - The content of the document
-    ///
-    /// # Returns
-    ///
-    /// The ID of the document
-    fn add_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, content : DC) -> TeangaResult<String> {
-        CorpusTransaction::new(self)?.add_doc(content)
-    }
-
-    /// Update a document
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - The ID of the document
-    /// * `content` - The content of the document
-    ///
-    /// # Returns
-    ///
-    /// The new ID of the document (if no text layers are changed this will be the same as input)
-    fn update_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, id : &str, content : DC) -> TeangaResult<String> {
-        CorpusTransaction::new(self)?.update_doc(id, content)
-    }
-
- 
-    /// Remove a document from the corpus
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - The ID of the document
-    fn remove_doc(&mut self, id : &str) -> TeangaResult<()> {
-        CorpusTransaction::new(self)?.remove_doc(id)
-    }
-
-    /// Get a document by its ID
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - The ID of the document
-    ///
-    /// # Returns
-    ///
-    /// The document as a map from layers names to layers
-    fn get_doc_by_id(&self, id : &str) -> TeangaResult<HashMap<String, Layer>> {
-        let db = open_db(&self.path)?;
-        let mut id_bytes = Vec::new();
-        id_bytes.push(DOCUMENT_PREFIX);
-        id_bytes.extend(id.as_bytes());
-        let data = db.get(id_bytes)
-            .map_err(|e| TeangaError::DBError(e))?
-            .ok_or_else(|| TeangaError::ModelError(
-                format!("Document not found")))?;
-        let doc = from_bytes::<Document>(data.as_ref())?;
-        let mut result = HashMap::new();
-        for (key, layer) in doc.content {
-            result.insert(key, layer);
-
-        }
-        Ok(result)
-    }
-
-    /// Get the documents in the corpus
-    ///
-    /// # Returns
-    ///
-    /// The documents IDs in order
-    fn get_docs(&self) -> Vec<String> {
-        self.order.clone()
-    }
-
-    /// Get the meta information for the corpus
-    ///
-    /// # Returns
-    ///
-    /// The meta information for the corpus
-    fn get_meta(&self) -> &HashMap<String, LayerDesc> {
-        &self.meta
-    }
-
-    /// Get the meta information for the corpus
-    ///
-    /// # Returns
-    ///
-    /// The meta information for the corpus
-    fn get_meta_mut(&mut self) -> &mut HashMap<String, LayerDesc> {
-        &mut self.meta
-    }
-
-
-    /// Get the order of the documents in the corpus
-    ///
-    /// # Returns
-    ///
-    /// The order of the documents in the corpus
-    fn get_order(&self) -> &Vec<String> {
-        &self.order
-    }
-}
 
 impl SimpleCorpus {
     pub fn new() -> SimpleCorpus {
@@ -343,17 +197,7 @@ impl Corpus for SimpleCorpus {
     ///
     /// The ID of the document
     fn add_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, content : DC) -> TeangaResult<String> {
-        for key in content.keys() {
-            if !self.meta.contains_key(&key) {
-                return Err(TeangaError::ModelError(
-                    format!("Layer {} does not exist", key)))
-            }
-        }
-        let mut doc_content = HashMap::new();
-        for (k, v) in content {
-            doc_content.insert(k.clone(), v.into_layer(&self.meta[&k].clone())?);
-        }
-        let doc = Document::new(doc_content);
+        let doc = Document::new(content, &self.meta)?;
         let id = teanga_id(&self.order, &doc);
         self.order.push(id.clone());
         self.content.insert(id.clone(), doc);
@@ -371,17 +215,7 @@ impl Corpus for SimpleCorpus {
     ///
     /// The new ID of the document (if no text layers are changed this will be the same as input)
     fn update_doc<D : IntoLayer, DC: DocumentContent<D>>(&mut self, id : &str, content : DC) -> TeangaResult<String> {
-        for key in content.keys() {
-            if !self.meta.contains_key(&key) {
-                return Err(TeangaError::ModelError(
-                    format!("Layer {} does not exist", key)))
-            }
-        }
-        let mut doc_content = HashMap::new();
-        for (k, v) in content {
-            doc_content.insert(k.clone(), v.into_layer(&self.meta[&k].clone())?);
-        }
-        let doc = Document::new(doc_content);
+        let doc = Document::new(content, &self.meta)?;
         let new_id = teanga_id(&self.order, &doc);
         if id != new_id {
             let n = self.order.iter().position(|x| x == id).ok_or_else(|| TeangaError::ModelError(
@@ -429,302 +263,6 @@ impl Corpus for SimpleCorpus {
     }
 }
 
-/// A corpus with an open database connection to implement multiple changes
-/// without closing the database
-struct CorpusTransaction<'a> {
-    corpus : &'a mut DiskCorpus, 
-    db : sled::Db
-}
-
-impl<'a> CorpusTransaction<'a> {
-    /// Connect to the database
-    fn new(corpus : &'a mut DiskCorpus) -> TeangaResult<CorpusTransaction> {
-        let db = open_db(&corpus.path)?;
-        Ok(CorpusTransaction {
-            corpus,
-            db
-        })
-    }
-
-    fn set_meta(&mut self, meta : HashMap<String, LayerDesc>) -> TeangaResult<()> {
-        self.corpus.meta = meta;
-        for (name, layer_desc) in self.corpus.meta.iter() {
-            let mut id_bytes = Vec::new();
-            id_bytes.push(META_PREFIX);
-            id_bytes.extend(name.clone().as_bytes());
-            self.db.insert(id_bytes, to_stdvec(&layer_desc)?).
-                map_err(|e| TeangaError::DBError(e))?;
-        }
-        Ok(())
-    }
-
-    fn set_order(&mut self, order : Vec<String>) -> TeangaResult<()> {
-        self.corpus.order = order;
-        self.db.insert(ORDER_BYTES.to_vec(), to_stdvec(&self.corpus.order)?).
-            map_err(|e| TeangaError::DBError(e))?;
-        Ok(())
-    }
-
-}
-
-impl<'a> Corpus for CorpusTransaction<'a> {
-    type LayerStorage = Layer;
-    type Content = HashMap<String, Layer>;
-
-    /// Add a layer to the corpus
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the layer
-    /// * `layer_type` - The type of the layer
-    /// * `base` - The layer that this layer is on
-    /// * `data` - The data file for this layer
-    /// * `link_types` - The types for links in this layer
-    /// * `target` - The target layer for this layer
-    /// * `default` - The default values for this layer
-    /// * `meta` - The metadata for this layer
-    fn add_layer_meta(&mut self, name: String, layer_type: LayerType, 
-        base: Option<String>, data: Option<DataType>, link_types: Option<Vec<String>>, 
-        target: Option<String>, default: Option<Layer>,
-        meta: HashMap<String, Value>) -> TeangaResult<()> {
-        if layer_type == LayerType::characters && base != Some("".to_string()) && base != None {
-            return Err(TeangaError::ModelError(
-                format!("Layer {} of type characters cannot be based on another layer", name)))
-        }
-
-        if layer_type != LayerType::characters && (base == Some("".to_string()) || base == None) {
-            return Err(TeangaError::ModelError(
-                format!("Layer {} of type {} must be based on another layer", name, layer_type)))
-        }
-
-        let layer_desc = LayerDesc {
-            layer_type,
-            base,
-            data,
-            link_types,
-            target,
-            default,
-            meta
-         };
-
-        let mut id_bytes = Vec::new();
-        id_bytes.push(META_PREFIX);
-        id_bytes.extend(name.clone().as_bytes());
-        self.db.insert(id_bytes, to_stdvec(&layer_desc)?)
-            .map_err(|e| TeangaError::DBError(e))?;
-
-        self.corpus.meta.insert(name.clone(), layer_desc);
-         Ok(())
-    }
-
-    /// Add or update a document in the corpus
-    ///
-    /// # Arguments
-    ///
-    /// * `content` - The content of the document
-    ///
-    /// # Returns
-    ///
-    /// The ID of the document
-    fn add_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, content : DC) -> TeangaResult<String> {
-        for key in content.keys() {
-            if !self.corpus.meta.contains_key(&key) {
-                return Err(TeangaError::ModelError(
-                    format!("Layer {} does not exist", key)))
-            }
-        }
-        let mut doc_content = HashMap::new();
-        for (k, v) in content {
-            let layer_meta = self.corpus.meta.get(&k).ok_or_else(|| TeangaError::ModelError(
-                format!("No meta information for layer {}", k)))?;
-            doc_content.insert(k, 
-                v.into_layer(layer_meta)?);
-        }
-        let doc = Document::new(doc_content);
-        let id = teanga_id(&self.corpus.order, &doc);
-    
-        self.corpus.order.push(id.clone());
-
-        self.db.insert(ORDER_BYTES.to_vec(), to_stdvec(&self.corpus.order)?)
-            .map_err(|e| TeangaError::DBError(e))?;
-
-        let data = to_stdvec(&doc)?;
-        let mut id_bytes = Vec::new();
-        id_bytes.push(DOCUMENT_PREFIX);
-        id_bytes.extend(id.as_bytes());
-        self.db.insert(id_bytes, data).map_err(|e| TeangaError::DBError(e))?;
-        Ok(id)
-    }
-
-    fn add_docs<D : IntoLayer, DC : DocumentContent<D>>(&mut self, contents : Vec<DC>) -> TeangaResult<Vec<String>> {
-        let mut docs = Vec::new();
-        let mut ids = Vec::new();
-        for content in contents {
-            for key in content.keys() {
-                if !self.corpus.meta.contains_key(&key) {
-                    return Err(TeangaError::ModelError(
-                        format!("Layer {} does not exist", key)))
-                }
-            }
-
-            let mut doc_content = HashMap::new();
-            for (k, v) in content {
-                let layer_meta = self.corpus.meta.get(&k).ok_or_else(|| TeangaError::ModelError(
-                    format!("No meta information for layer {}", k)))?;
-                doc_content.insert(k, 
-                    v.into_layer(layer_meta)?);
-            }
-            let doc = Document::new(doc_content);
-            let id = teanga_id(&self.corpus.order, &doc);
-        
-            self.corpus.order.push(id.clone());
-            docs.push((id.clone(), to_stdvec(&doc)?));
-            ids.push(id);
-        }
-
-        let order_bytes = to_stdvec(&self.corpus.order)?;
-
-        self.db.transaction(move |tx| {
-            tx.insert(ORDER_BYTES.to_vec(), order_bytes.clone())?;
-            for (id, data) in &docs {
-
-
-                let mut id_bytes = Vec::new();
-                id_bytes.push(DOCUMENT_PREFIX);
-                id_bytes.extend(id.as_bytes());
-                tx.insert(id_bytes, data.clone())?;
-            }
-            Ok(())
-        }).map_err(|e| TeangaError::DBTXError(e))?;
-        Ok(ids)
-    }
-
-    /// Update a document
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - The ID of the document
-    /// * `content` - The content of the document
-    ///
-    /// # Returns
-    ///
-    /// The new ID of the document (if no text layers are changed this will be the same as input)
-    fn update_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, id : &str, content : DC) -> TeangaResult<String> {
-        for key in content.keys() {
-            if !self.corpus.meta.contains_key(&key) {
-                return Err(TeangaError::ModelError(
-                    format!("Layer {} does not exist", key)))
-            }
-        }
-
-        let mut doc_content = HashMap::new();
-        for (k, v) in content {
-            let layer_meta = self.corpus.meta.get(&k).ok_or_else(|| TeangaError::ModelError(
-                format!("No meta information for layer {}", k)))?;
-            doc_content.insert(k, 
-                v.into_layer(layer_meta)?);
-        }
-
-        let doc = Document::new(doc_content);
-        let new_id = teanga_id(&self.corpus.order, &doc);
-        if id != new_id {
-        
-            let n = self.corpus.order.iter().position(|x| x == id).ok_or_else(|| TeangaError::ModelError(
-                format!("Cannot find document in order vector: {}", id)))?;
-            self.corpus.order.remove(n);
-            self.corpus.order.insert(n, new_id.clone());
-
-            self.db.insert(ORDER_BYTES.to_vec(), to_stdvec(&self.corpus.order)?).
-                map_err(|e| TeangaError::DBError(e))?;
-
-            let mut old_id_bytes = Vec::new();
-            old_id_bytes.push(DOCUMENT_PREFIX);
-            old_id_bytes.extend(id.as_bytes());
-            self.db.remove(old_id_bytes).map_err(|e| TeangaError::ModelError(
-                format!("Cannot remove document {}", e)))?;
-        }
-
-        let data = to_stdvec(&doc)?;
-        let mut id_bytes = Vec::new();
-        id_bytes.push(DOCUMENT_PREFIX);
-        id_bytes.extend(new_id.as_bytes());
-        self.db.insert(id_bytes, data).map_err(|e| TeangaError::DBError(e))?;
-        Ok(new_id)
-    }
-
- 
-    /// Remove a document from the corpus
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - The ID of the document
-    fn remove_doc(&mut self, id : &str) -> TeangaResult<()> {
-        let mut id_bytes = Vec::new();
-        id_bytes.push(DOCUMENT_PREFIX);
-        id_bytes.extend(id.as_bytes());
-        self.db.remove(id_bytes).map_err(|e| TeangaError::ModelError(
-            format!("Cannot remove document {}", e)))?;
-        self.corpus.order.retain(|x| x != id);
-        self.db.insert(ORDER_BYTES.to_vec(), to_stdvec(&self.corpus.order)?).
-            map_err(|e| TeangaError::DBError(e))?;
-        Ok(())
-    }
-
-    fn get_doc_by_id(&self, id : &str) -> TeangaResult<HashMap<String, Layer>> {
-        let mut id_bytes = Vec::new();
-        id_bytes.push(DOCUMENT_PREFIX);
-        id_bytes.extend(id.as_bytes());
-        let data = self.db.get(id_bytes)
-            .map_err(|e| TeangaError::DBError(e))?
-            .ok_or_else(|| TeangaError::ModelError(
-                format!("Document not found")))?;
-        let doc = from_bytes::<Document>(data.as_ref())?;
-        let mut result = HashMap::new();
-        for (key, layer) in doc.content {
-            result.insert(key, layer);
-        }
-        Ok(result)
-    }
-
-    /// Get the documents in the corpus
-    ///
-    /// # Returns
-    ///
-    /// The documents IDs in order
-    fn get_docs(&self) -> Vec<String> {
-        self.corpus.get_docs()
-    }
-
-    /// Get the meta information for the corpus
-    ///
-    /// # Returns
-    ///
-    /// The meta information for the corpus
-    fn get_meta(&self) -> &HashMap<String, LayerDesc> {
-        self.corpus.get_meta()
-    }
-
-    /// Get the meta information for the corpus
-    ///
-    /// # Returns
-    ///
-    /// The meta information for the corpus
-    fn get_meta_mut(&mut self) -> &mut HashMap<String, LayerDesc> {
-        self.corpus.get_meta_mut()
-    }
-
-
-    /// Get the order of the documents in the corpus
-    ///
-    /// # Returns
-    ///
-    /// The order of the documents in the corpus
-    fn get_order(&self) -> &Vec<String> {
-        self.corpus.get_order()
-    }
-
-}
-
 fn to_stdvec<T : Serialize>(t : &T) -> TeangaResult<Vec<u8>> {
     let mut v = Vec::new();
     into_writer(t,  &mut v).map_err(|e| TeangaError::DataError(e))?;
@@ -746,10 +284,23 @@ pub struct Document {
 }
 
 impl Document {
-    fn new(content : HashMap<String, Layer>) -> Document {
-        Document {
-            content
+    fn new<D : IntoLayer, DC : DocumentContent<D>>(content : DC, meta: &HashMap<String, LayerDesc>) -> TeangaResult<Document> {
+       for key in content.keys() {
+            if !meta.contains_key(&key) {
+                return Err(TeangaError::ModelError(
+                    format!("Layer {} does not exist", key)))
+            }
         }
+        let mut doc_content = HashMap::new();
+        for (k, v) in content {
+            let layer_meta = meta.get(&k).ok_or_else(|| TeangaError::ModelError(
+                format!("No meta information for layer {}", k)))?;
+            doc_content.insert(k, 
+                v.into_layer(layer_meta)?);
+        }
+        Ok(Document {
+            content: doc_content
+        })
     }
 }
 
@@ -940,13 +491,6 @@ mod test {
         };
         let expected = "Kjco";
         assert_eq!(teanga_id(&existing_keys, &doc), expected);
-    }
-
-    #[test]
-    fn test_gen_next_id() {
-        let db = sled::Config::new().temporary(true).open().unwrap();
-        assert_eq!(1, gen_next_id(&db, "A"));
-        assert_eq!(2, gen_next_id(&db, "B"));
     }
 
     #[test]
