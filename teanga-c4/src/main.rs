@@ -1,5 +1,5 @@
 use clap::Parser;
-use teanga::DiskCorpus;
+use teanga::TransactionCorpus;
 use flate2;
 use serde_json::Value;
 use teanga::{Corpus, build_layer, LayerType, Layer, TeangaResult, DataType};
@@ -16,7 +16,7 @@ struct Opts {
     max: usize,
 }
 
-fn init_corpus(corpus: &mut DiskCorpus) -> TeangaResult<()> {
+fn init_corpus<C : Corpus>(corpus: &mut C) -> TeangaResult<()> {
     build_layer(corpus, "text")
         .add()?;
     build_layer(corpus, "document")
@@ -72,12 +72,14 @@ fn download_c4_frag<C: Corpus>(corpus: &mut C, url: &str) -> Result<(), String> 
 fn main() {
     let opts = Opts::parse();
 
-    let mut corpus = DiskCorpus::new("c4").unwrap();
+    let mut corpus = TransactionCorpus::new("c4").unwrap();
 
     init_corpus(&mut corpus).unwrap();
 
     for i in opts.min..opts.max {
-        download_c4_frag(&mut corpus.transaction().unwrap(),
+        download_c4_frag(&mut corpus,
             &format!("https://huggingface.co/datasets/allenai/c4/resolve/main/en/c4-train.{:05}-of-01024.json.gz?download=true", i)).unwrap();
     }
+    
+    corpus.commit().unwrap();
 }

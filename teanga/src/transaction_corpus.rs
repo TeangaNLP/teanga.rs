@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use crate::*;
 use sled::Db;
+use std::io::{Read, BufRead};
 
 #[derive(Debug,Clone)]
 /// A corpus object
@@ -43,6 +44,10 @@ impl TransactionCorpus {
         })
     }
     
+    /// Commit the transaction
+    ///
+    /// # Returns
+    /// The disk corpus object  
     pub fn commit(self) -> TeangaResult<DiskCorpus> {
         for (name, layer_desc) in self.meta.iter() {
             let mut id_bytes = Vec::new();
@@ -56,12 +61,42 @@ impl TransactionCorpus {
         Ok(DiskCorpus::new_unchecked(self.meta, self.order, self.path))
     }
 
+    /// Directly set the meta. This will be written on commit
+    ///
+    /// # Arguments
+    /// * `meta` - The meta information
+    ///
+    /// # Returns
+    /// The disk corpus object
     pub fn set_meta(&mut self, meta: HashMap<String, LayerDesc>) {
         self.meta = meta;
     }
 
+    /// Directly set the order. This will be written on commit
+    ///
+    /// # Arguments
+    /// * `order` - The order of the documents
+    ///
+    /// # Returns
+    /// The disk corpus object
     pub fn set_order(&mut self, order: Vec<String>) {
         self.order = order;
+    }
+    
+    pub fn read_yaml<'de, R: Read>(&mut self, r: R) -> Result<(), TeangaYamlError> {
+        Ok(crate::serialization::read_yaml(r, self, false)?)
+    }
+
+    pub fn read_json<'de, R: Read>(&mut self, r: R) -> Result<(), TeangaJsonError> {
+        Ok(crate::serialization::read_json(r, self, false)?)
+    }
+
+    pub fn read_jsonl<'de, R: Read + BufRead>(&mut self, r: R) -> Result<(), TeangaJsonError> {
+        Ok(crate::serialization::read_jsonl(r, self)?)
+    }
+
+    pub fn read_yaml_header<'de, R: Read>(&mut self, r: R) -> Result<(), TeangaYamlError> {
+        Ok(crate::serialization::read_yaml(r, self, true)?)
     }
 }
 

@@ -13,6 +13,9 @@ use thiserror::Error;
 use std::io::Write;
 use itertools::Itertools;
 use crate::Corpus;
+use std::io::Read;
+use std::io::BufRead;
+use crate::TeangaJsonError;
 
 struct TeangaVisitor(String);
 
@@ -43,6 +46,37 @@ impl<'de> Visitor<'de> for TeangaVisitor {
             }
         }
         Ok(trans.commit().map_err(serde::de::Error::custom)?)
+    }
+}
+
+struct TeangaVisitor2<'a>(&'a mut TransactionCorpus, bool);
+
+impl <'de,'a> Visitor<'de> for TeangaVisitor2<'a> {
+    type Value = ();
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a string representing a corpus")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where A: serde::de::MapAccess<'de>
+    {
+         while let Some(ref key) = map.next_key::<String>()? {
+            if key == "_meta" {
+                let data = map.next_value::<HashMap<String, LayerDesc>>()?;
+                self.0.set_meta(data);
+            } else if !self.1 && key == "_order" {
+                let data = map.next_value::<Vec<String>>()?;
+                self.0.set_order(data);
+            } else if !self.1 {
+                let doc = map.next_value::<HashMap<String, Layer>>()?;
+                let id = self.0.add_doc(doc).map_err(serde::de::Error::custom)?;
+                if id[..min(id.len(), key.len())] != key[..min(id.len(), key.len())] {
+                    return Err(serde::de::Error::custom(format!("Document fails hash check: {} != {}", id, key)))
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -111,6 +145,24 @@ pub fn pretty_yaml_serialize<W : Write>(corpus: &DiskCorpus, mut writer: W) -> R
                 writer.write_all(b"\n")?;
             }
         }
+    }
+    Ok(())
+}
+
+pub fn read_json<'de, R: Read>(reader: R, corpus : &mut TransactionCorpus, meta_only : bool) -> Result<(), serde_json::Error> {
+    let mut deserializer = serde_json::Deserializer::from_reader(reader);
+    deserializer.deserialize_any(TeangaVisitor2(corpus, meta_only))
+}
+
+pub fn read_yaml<'de, R: Read>(reader: R, corpus : &mut TransactionCorpus, meta_only : bool) -> Result<(), serde_yaml::Error> {
+    let deserializer = serde_yaml::Deserializer::from_reader(reader);
+    deserializer.deserialize_any(TeangaVisitor2(corpus, meta_only))
+}
+
+pub fn read_jsonl<'de, R: Read + BufRead>(reader: R, corpus : &mut TransactionCorpus) -> Result<(), TeangaJsonError> {
+    for line in reader.lines() {
+        let doc : HashMap<String, Layer> = serde_json::from_str(&line?)?;
+        corpus.add_doc(doc)?;
     }
     Ok(())
 }
@@ -275,6 +327,44 @@ ecWc:
         let file = tempfile::tempdir().expect("Cannot create temp folder")
             .path().to_str().unwrap().to_owned();
         read_corpus_from_yaml_string("_meta:\n  text:\n    type: characters\nKjco:\n   text: This is a document.\n", &file).unwrap();
+    }
+
+    #[test]
+    fn test_2() {
+        let data = "_meta:
+  text:
+    type: characters
+  document:
+    type: div
+    base: characters
+    default: [[0]]
+  url:
+    type: seq
+    base: document
+    data: string
+  timestamp:
+    type: seq
+    base: document
+    data: string
+  words:
+    type: span
+    base: characters
+  pos:
+    type: seq
+    base: words
+    data: [\"ADJ\", \"ADP\", \"PUNCT\", \"ADV\", \"AUX\", \"SYM\", \"INTJ\", \"CCONJ\", \"X\", \"NOUN\", \"DET\", \"PROPN\", \"NUM\", \"VERB\", \"PART\", \"PRON\", \"SCONJ\"]
+  lemma:
+    type: seq
+    base: words
+    data: string".to_string();
+        let data = "_meta:
+  text:
+    type: characters
+  document:
+    type: div
+    base: characters".to_string();
+ 
+        read_yaml(data.as_bytes(), &mut TransactionCorpus::new("test").unwrap(), true).unwrap();
     }
 }
 

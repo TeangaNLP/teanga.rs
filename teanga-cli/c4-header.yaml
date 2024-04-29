@@ -1,0 +1,28 @@
+_meta:
+  text:
+    type: characters
+  document:
+    type: div
+    base: characters
+    default: [0]
+  url:
+    type: seq
+    base: document
+    data: string
+  timestamp:
+    type: seq
+    base: document
+    data: string
+  words:
+    type: span
+    base: characters
+  pos:
+    type: seq
+    base: words
+    data: ["ADJ", "ADP", "PUNCT", "ADV", "AUX", "SYM", "INTJ", "CCONJ", "X", "NOUN", "DET", "PROPN", "NUM", "VERB", "PART", "PRON", "SCONJ"]
+  lemma:
+    type: seq
+    base: words
+    data: string
+
+

@@ -12,6 +12,7 @@ use itertools::Itertools;
 use serde::{Serialize,Deserialize};
 use thiserror::Error;
 use std::fs::File;
+use serde::ser::SerializeSeq;
 
 pub mod serialization;
 pub mod layer_builder;
@@ -387,11 +388,59 @@ impl Display for LayerType {
     }
 }
 
-#[derive(Debug,Clone,PartialEq,Serialize,Deserialize)]
+#[derive(Debug,Clone,PartialEq)]
 pub enum DataType {
     String,
     Enum(Vec<String>),
     Link
+}
+
+impl Serialize for DataType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
+        match self {
+            DataType::String => serializer.serialize_str("string"),
+            DataType::Enum(vals) => {
+                let mut seq = serializer.serialize_seq(Some(vals.len()))?;
+                for val in vals {
+                    seq.serialize_element(val)?;
+                }
+                seq.end()
+            },
+            DataType::Link => serializer.serialize_str("link")
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for DataType {
+    fn deserialize<D>(deserializer: D) -> Result<DataType, D::Error> where D: serde::Deserializer<'de> {
+        struct DataTypeVisitor;
+        impl<'de> serde::de::Visitor<'de> for DataTypeVisitor {
+            type Value = DataType;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a string or an array of strings")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<DataType, E> where E: serde::de::Error {
+                match value {
+                    "string" => Ok(DataType::String),
+                    "String" => Ok(DataType::String),
+                    "link" => Ok(DataType::Link),
+                    "Link" => Ok(DataType::Link),
+                    _ => Err(serde::de::Error::invalid_value(serde::de::Unexpected::Str(value), &self))
+                }
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<DataType, A::Error> where A: serde::de::SeqAccess<'de> {
+                let mut vals = Vec::new();
+                while let Some(val) = seq.next_element()? {
+                    vals.push(val);
+                }
+                Ok(DataType::Enum(vals))
+            }
+        }
+        deserializer.deserialize_any(DataTypeVisitor)
+    }
 }
 
 impl Display for DataType {
@@ -462,7 +511,11 @@ pub enum TeangaJsonError {
     #[error("JSON error: {0}")]
     JsonError(#[from] serde_json::Error),
     #[error("Serialization error: {0}")]
-    SerdeError(#[from] crate::serialization::SerializeError)
+    SerdeError(#[from] crate::serialization::SerializeError),
+    #[error("IO error: {0}")]
+    IOError(#[from] std::io::Error),
+    #[error("Teanga error: {0}")]
+    TeangaError(#[from] TeangaError)
 }
 
 #[derive(Error, Debug)]
@@ -496,8 +549,20 @@ mod test {
     #[test]
     fn test_reopen_corpus() {
         let mut corpus = DiskCorpus::new("tmp").unwrap();
-        corpus.add_layer_meta("text".to_string(), LayerType::characters, None, Some(DataType::String), None, None, None, HashMap::new()).unwrap();
+        corpus.add_layer_meta("text".to_string(), LayerType::characters, None, Some(DataType::Enum(vec!["a".to_string(),"b".to_string()])), None, None, None, HashMap::new()).unwrap();
         corpus.add_doc(vec![("text".to_string(), "test")]).unwrap();
         let _corpus = DiskCorpus::new("tmp");
+    }
+
+    #[test]
+    fn test_serialize_layer() {
+        let layer = Layer::L1S(vec![(1,"a".to_string()),(2,"b".to_string())]);
+        let s = serde_json::to_string(&layer).unwrap();
+        assert_eq!(s, r#"[[1,"a"],[2,"b"]]"#);
+        let layer2 : Layer = serde_json::from_str(&s).unwrap();
+        assert_eq!(layer, layer2);
+        let layer3 = Layer::L1(vec![0]);
+        let layer4 : Layer = serde_json::from_str("[0]").unwrap();
+        assert_eq!(layer3, layer4);
     }
 }
