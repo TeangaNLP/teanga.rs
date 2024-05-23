@@ -1,21 +1,19 @@
 // Serialization support for Teanga DB
 // -----------------------------------------------------------------------------
-use serde::de::Visitor;
-use crate::{DiskCorpus, LayerDesc, Layer, TransactionCorpus};
-use std::collections::HashMap;
-use serde::Deserializer;
-use std::cmp::min;
-use std::path::Path;
-use std::fs::File;
-use serde::Serialize;
-use serde::ser::{Serializer, SerializeMap};
-use thiserror::Error;
-use std::io::Write;
+use crate::{Corpus, DiskCorpus, WriteableCorpus, LayerDesc, Layer, TransactionCorpus, TeangaJsonError};
 use itertools::Itertools;
-use crate::Corpus;
-use std::io::Read;
+use serde::Deserializer;
+use serde::Serialize;
+use serde::de::Visitor;
+use serde::ser::{Serializer, SerializeMap};
+use std::cmp::min;
+use std::collections::HashMap;
+use std::fs::File;
 use std::io::BufRead;
-use crate::TeangaJsonError;
+use std::io::Read;
+use std::io::Write;
+use std::path::Path;
+use thiserror::Error;
 
 struct TeangaVisitor(String);
 
@@ -49,9 +47,9 @@ impl<'de> Visitor<'de> for TeangaVisitor {
     }
 }
 
-struct TeangaVisitor2<'a>(&'a mut TransactionCorpus, bool);
+struct TeangaVisitor2<'a, C : WriteableCorpus>(&'a mut C, bool);
 
-impl <'de,'a> Visitor<'de> for TeangaVisitor2<'a> {
+impl <'de,'a, C: WriteableCorpus> Visitor<'de> for TeangaVisitor2<'a, C> {
     type Value = ();
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -154,7 +152,7 @@ pub fn read_json<'de, R: Read>(reader: R, corpus : &mut TransactionCorpus, meta_
     deserializer.deserialize_any(TeangaVisitor2(corpus, meta_only))
 }
 
-pub fn read_yaml<'de, R: Read>(reader: R, corpus : &mut TransactionCorpus, meta_only : bool) -> Result<(), serde_yaml::Error> {
+pub fn read_yaml<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C, meta_only : bool) -> Result<(), serde_yaml::Error> {
     let deserializer = serde_yaml::Deserializer::from_reader(reader);
     deserializer.deserialize_any(TeangaVisitor2(corpus, meta_only))
 }

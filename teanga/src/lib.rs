@@ -18,10 +18,12 @@ pub mod serialization;
 pub mod layer_builder;
 pub mod disk_corpus;
 pub mod transaction_corpus;
+mod tcf;
 
 pub use disk_corpus::DiskCorpus;
 pub use transaction_corpus::TransactionCorpus;
 pub use layer_builder::build_layer;
+pub use tcf::write_tcf_corpus;
 
 const DOCUMENT_PREFIX : u8 = 0x00;
 const META_PREFIX : u8 = 0x03;
@@ -50,6 +52,11 @@ pub trait Corpus {
         }
         Ok(ids)
     }
+}
+
+pub trait WriteableCorpus : Corpus {
+    fn set_meta(&mut self, meta : HashMap<String, LayerDesc>);
+    fn set_order(&mut self, order : Vec<String>);
 }
 
 pub trait DocumentContent<D> : IntoIterator<Item=(String, D)> where D : IntoLayer {
@@ -92,9 +99,9 @@ fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
 #[derive(Debug, Clone)]
 /// An in-memory corpus object
 pub struct SimpleCorpus {
-    meta: HashMap<String, LayerDesc>,
-    order: Vec<String>,
-    content: HashMap<String, Document>
+    pub meta: HashMap<String, LayerDesc>,
+    pub order: Vec<String>,
+    pub content: HashMap<String, Document>
 }
 
 #[derive(Debug,Clone,Serialize,Deserialize)]
@@ -154,6 +161,11 @@ impl SimpleCorpus {
             content: HashMap::new(),
         }
     }
+
+    pub fn read_yaml_header<'de, R: std::io::Read>(&mut self, r: R) -> Result<(), TeangaYamlError> {
+        Ok(crate::serialization::read_yaml(r, self, true)?)
+    }
+
 }
 
 impl Corpus for SimpleCorpus {
@@ -264,6 +276,16 @@ impl Corpus for SimpleCorpus {
     }
 }
 
+impl WriteableCorpus for SimpleCorpus {
+    fn set_meta(&mut self, meta : HashMap<String, LayerDesc>) {
+        self.meta = meta;
+    }
+
+    fn set_order(&mut self, order : Vec<String>) {
+        self.order = order;
+    }
+}
+
 fn to_stdvec<T : Serialize>(t : &T) -> TeangaResult<Vec<u8>> {
     let mut v = Vec::new();
     into_writer(t,  &mut v).map_err(|e| TeangaError::DataError(e))?;
@@ -281,7 +303,7 @@ fn open_db(path : &str) -> TeangaResult<sled::Db> {
 #[derive(Debug,Clone,Serialize,Deserialize)]
 /// A document object
 pub struct Document {
-    content: HashMap<String, Layer>
+    pub content: HashMap<String, Layer>
 }
 
 impl Document {

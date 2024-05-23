@@ -61,28 +61,6 @@ impl TransactionCorpus {
         Ok(DiskCorpus::new_unchecked(self.meta, self.order, self.path))
     }
 
-    /// Directly set the meta. This will be written on commit
-    ///
-    /// # Arguments
-    /// * `meta` - The meta information
-    ///
-    /// # Returns
-    /// The disk corpus object
-    pub fn set_meta(&mut self, meta: HashMap<String, LayerDesc>) {
-        self.meta = meta;
-    }
-
-    /// Directly set the order. This will be written on commit
-    ///
-    /// # Arguments
-    /// * `order` - The order of the documents
-    ///
-    /// # Returns
-    /// The disk corpus object
-    pub fn set_order(&mut self, order: Vec<String>) {
-        self.order = order;
-    }
-    
     pub fn read_yaml<'de, R: Read>(&mut self, r: R) -> Result<(), TeangaYamlError> {
         Ok(crate::serialization::read_yaml(r, self, false)?)
     }
@@ -99,7 +77,6 @@ impl TransactionCorpus {
         Ok(crate::serialization::read_yaml(r, self, true)?)
     }
 }
-
 
 impl Corpus for TransactionCorpus {
     type LayerStorage = Layer;
@@ -290,5 +267,31 @@ impl Corpus for TransactionCorpus {
         &self.order
     }
 }
+
+impl WriteableCorpus for TransactionCorpus {
+
+    /// Directly set the meta. This will be written on commit
+    ///
+    /// # Arguments
+    /// * `meta` - The meta information
+    ///
+    /// # Returns
+    /// The disk corpus object
+    fn set_meta(&mut self, meta: HashMap<String, LayerDesc>) {
+        self.meta = meta;
+    }
+
+    /// Directly set the order. This will be written on commit
+    ///
+    /// # Arguments
+    /// * `order` - The order of the documents
+    ///
+    /// # Returns
+    /// The disk corpus object
+    fn set_order(&mut self, order: Vec<String>) {
+        self.order = order;
+    }
+}
+    
 
 

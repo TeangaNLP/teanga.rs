@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::io::BufWriter;
 use std::io::BufRead;
 use teanga::Layer;
+use teanga::{write_tcf_corpus, Document, SimpleCorpus};
 
 /// Command line arguments
 #[derive(Parser, Debug)]
@@ -91,20 +92,44 @@ impl LoadCommand {
 }
 
 impl ToCborCommand {
+//    fn run(&self) -> Result<(), String> {
+//        let output = BufWriter::new(File::create(&self.output)
+//            .map_err(|e| format!("Failed to create output file: {}", e))?);
+//        let mut all_data = Vec::new();
+//        for line in BufReader::new(flate2::read::GzDecoder::new(File::open(&self.file)
+//            .map_err(|e| format!("Failed to open file: {}", e))?))
+//            .lines() {
+//            let line = line.map_err(|e| format!("Failed to read line: {}", e))?;
+//            let data : HashMap<String, Layer> = serde_json::from_str(&line)
+//                .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+//            all_data.push(data);
+//        }
+//        into_writer(&all_data, output).
+//            map_err(|e| format!("Failed to write CBOR: {}", e))?;
+//        Ok(())
+//    }
     fn run(&self) -> Result<(), String> {
-        let output = BufWriter::new(File::create(&self.output)
+        let mut output = BufWriter::new(File::create(&self.output)
             .map_err(|e| format!("Failed to create output file: {}", e))?);
         let mut all_data = Vec::new();
+        let mut corpus = SimpleCorpus::new();
+        corpus.read_yaml_header(File::open("c4-header.yaml")
+            .map_err(|e| format!("Failed to open meta file: {}", e))?).unwrap();
+
         for line in BufReader::new(flate2::read::GzDecoder::new(File::open(&self.file)
             .map_err(|e| format!("Failed to open file: {}", e))?))
             .lines() {
             let line = line.map_err(|e| format!("Failed to read line: {}", e))?;
             let data : HashMap<String, Layer> = serde_json::from_str(&line)
                 .map_err(|e| format!("Failed to parse JSON: {}", e))?;
-            all_data.push(data);
+            all_data.push(("".to_string(), Document{ content: data }));
         }
-        into_writer(&all_data, output).
-            map_err(|e| format!("Failed to write CBOR: {}", e))?;
+        let mut byte_counts = HashMap::new();
+        write_tcf_corpus(output, &corpus.meta,
+            all_data.into_iter(), &mut byte_counts).map_err(|e| format!("Failed to write TCF: {}", e))?;
+        for (key, value) in byte_counts {
+            println!("{}: {}", key, value);
+        }
         Ok(())
     }
 }
