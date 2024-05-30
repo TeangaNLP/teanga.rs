@@ -5,6 +5,11 @@ use pyo3::prelude::*;
 use ::teanga::{DiskCorpus, LayerDesc, LayerType, DataType, Value, Layer, Corpus};
 use std::collections::HashMap;
 
+mod tcf_py;
+
+use tcf_py::TCFPyCorpus;
+use ::teanga::{TeangaResult, IntoLayer};
+
 #[pyclass(name="Corpus")]
 #[derive(Debug,Clone)]
 /// A corpus object
@@ -231,6 +236,12 @@ impl IntoPy<PyObject> for PyRawLayer {
                     .collect::<Vec<HashMap<String, PyValue>>>()
                     .into_py(py)
         }
+    }
+}
+
+impl IntoLayer for PyRawLayer {
+    fn into_layer(self, meta: &LayerDesc) -> TeangaResult<Layer> {
+        Ok(self.0)
     }
 }
 
@@ -536,6 +547,7 @@ impl IntoPy<PyObject> for PyLayerType {
     }
 }
 
+
 #[derive(Debug,Clone,PartialEq)]
 pub struct PyDataType(DataType);
 
@@ -621,6 +633,7 @@ fn read_corpus_from_json_file(json : &str, path: &str) -> PyResult<PyDiskCorpus>
 #[pyo3(name="teanga")]
 fn teanga(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyDiskCorpus>()?;
+    m.add_class::<TCFPyCorpus>()?;
     m.add_function(wrap_pyfunction!(read_corpus_from_json_string, m)?)?;
     m.add_function(wrap_pyfunction!(read_corpus_from_yaml_string, m)?)?;
     m.add_function(wrap_pyfunction!(read_corpus_from_json_file, m)?)?;

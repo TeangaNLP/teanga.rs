@@ -6,7 +6,7 @@ use ciborium::into_writer;
 use std::io::Write;
 use lru::LruCache;
 
-pub enum TCF {
+enum TCF {
     Characters(Vec<u8>),
     L1(TCFIndex),
     L2(TCFIndex, TCFIndex),
@@ -179,6 +179,10 @@ impl TCF {
             }
         }
     }
+}
+
+pub fn layer_to_bytes<I: Index>(layer : &Layer, idx : &mut I, ld : &LayerDesc) -> Vec<u8> {
+    TCF::from_layer(layer, idx, ld).into_bytes()
 }
 
 pub fn write_tcf_corpus<W : Write, I>(

@@ -23,7 +23,7 @@ mod tcf;
 pub use disk_corpus::DiskCorpus;
 pub use transaction_corpus::TransactionCorpus;
 pub use layer_builder::build_layer;
-pub use tcf::write_tcf_corpus;
+pub use tcf::{write_tcf_corpus, layer_to_bytes, Index, IndexResult};
 
 const DOCUMENT_PREFIX : u8 = 0x00;
 const META_PREFIX : u8 = 0x03;
@@ -125,7 +125,7 @@ pub struct LayerDesc {
 }
 
 impl LayerDesc {
-    fn new(name: &str, layer_type: LayerType, 
+    pub fn new(name: &str, layer_type: LayerType, 
         base: Option<String>, data: Option<DataType>, link_types: Option<Vec<String>>, 
         target: Option<String>, default: Option<Layer>,
         meta: HashMap<String, Value>) -> TeangaResult<LayerDesc> {
@@ -307,7 +307,7 @@ pub struct Document {
 }
 
 impl Document {
-    fn new<D : IntoLayer, DC : DocumentContent<D>>(content : DC, meta: &HashMap<String, LayerDesc>) -> TeangaResult<Document> {
+    pub fn new<D : IntoLayer, DC : DocumentContent<D>>(content : DC, meta: &HashMap<String, LayerDesc>) -> TeangaResult<Document> {
        for key in content.keys() {
             if !meta.contains_key(&key) {
                 return Err(TeangaError::ModelError(
@@ -367,7 +367,8 @@ pub enum Layer {
     MetaLayer(Vec<HashMap<String, Value>>)
 }
 
-fn teanga_id(existing_keys : &Vec<String>, doc : &Document) -> String {
+/// Generate a unique ID for a document
+pub fn teanga_id(existing_keys : &Vec<String>, doc : &Document) -> String {
     let mut hasher = Sha256::new();
     for key in doc.content.keys().sorted() {
         match doc.content.get(key).unwrap() {
@@ -524,6 +525,8 @@ pub enum TeangaError {
     UTFDataError,
     #[error("Teanga model error: {0}")]
     ModelError(String),
+    #[error("TCF Corpora cannot be mutated")]
+    TCFMutError
 }
 
 pub type TeangaResult<T> = Result<T, TeangaError>;
