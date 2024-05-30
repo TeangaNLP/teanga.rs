@@ -130,7 +130,7 @@ pub fn pretty_yaml_serialize<W : Write>(corpus: &DiskCorpus, mut writer: W) -> R
         writer.write_all(id.as_bytes())?;
         writer.write_all(b":\n")?;
         let doc = corpus.get_doc_by_id(id)?;
-        for name in doc.keys().sorted() {
+        for name in doc.keys().iter().sorted() {
             let layer = &doc[name];
             if let Layer::Characters(_) = layer {
                 writer.write_all(b"    ")?;
@@ -331,32 +331,6 @@ ecWc:
 
     #[test]
     fn test_2() {
-        let data = "_meta:
-  text:
-    type: characters
-  document:
-    type: div
-    base: characters
-    default: [[0]]
-  url:
-    type: seq
-    base: document
-    data: string
-  timestamp:
-    type: seq
-    base: document
-    data: string
-  words:
-    type: span
-    base: characters
-  pos:
-    type: seq
-    base: words
-    data: [\"ADJ\", \"ADP\", \"PUNCT\", \"ADV\", \"AUX\", \"SYM\", \"INTJ\", \"CCONJ\", \"X\", \"NOUN\", \"DET\", \"PROPN\", \"NUM\", \"VERB\", \"PART\", \"PRON\", \"SCONJ\"]
-  lemma:
-    type: seq
-    base: words
-    data: string".to_string();
         let data = "_meta:
   text:
     type: characters

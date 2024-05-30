@@ -2,7 +2,6 @@
 // Author: John P. McCrae
 // License: Apache 2.0
 use std::collections::HashMap;
-use std::fmt::{self, Display, Formatter};
 use sled;
 use ciborium::{from_reader, into_writer};
 use sha2::{Digest, Sha256};
@@ -18,15 +17,15 @@ pub mod document;
 pub mod layer;
 pub mod layer_builder;
 pub mod serialization;
-pub mod text_match_condition;
+pub mod match_condition;
 pub mod transaction_corpus;
 
 pub use document::{Document, DocumentContent};
 pub use disk_corpus::DiskCorpus;
 pub use transaction_corpus::TransactionCorpus;
-pub use layer::{IntoLayer, Layer, LayerDesc, DataType, LayerType};
+pub use layer::{IntoLayer, Layer, LayerDesc, DataType, LayerType, TeangaData};
 pub use layer_builder::build_layer;
-pub use text_match_condition::TextMatchCondition;
+pub use match_condition::{TextMatchCondition, DataMatchCondition};
 
 const DOCUMENT_PREFIX : u8 = 0x00;
 const META_PREFIX : u8 = 0x03;
@@ -43,7 +42,7 @@ pub trait Corpus {
     fn add_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, content : DC) -> TeangaResult<String>;
     fn update_doc<D : IntoLayer, DC: DocumentContent<D>>(&mut self, id : &str, content : DC) -> TeangaResult<String>;
     fn remove_doc(&mut self, id : &str) -> TeangaResult<()>;
-    fn get_doc_by_id(&self, id : &str) -> TeangaResult<Self::Content>;
+    fn get_doc_by_id(&self, id : &str) -> TeangaResult<Document>;
     fn get_docs(&self) -> Vec<String>;
     fn get_meta(&self) -> &HashMap<String, LayerDesc>;
     fn get_meta_mut(&mut self) -> &mut HashMap<String, LayerDesc>;
@@ -55,7 +54,35 @@ pub trait Corpus {
         }
         Ok(ids)
     }
+    fn text_freq<C: TextMatchCondition>(&self, layer : &str, condition : C) -> TeangaResult<HashMap<String, u32>> {
+        let mut freq = HashMap::new();
+        for doc_id in self.get_docs() {
+            let doc = self.get_doc_by_id(&doc_id)?;
+            if let Some(text) = doc.text(layer, self.get_meta()) {
+                for word in text {
+                    if condition.matches(word) {
+                        *freq.entry(word.to_string()).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+        Ok(freq)
     }
+
+    fn val_freq<C: DataMatchCondition>(&self, layer : &str, condition : C) -> TeangaResult<HashMap<TeangaData, u32>> {
+        let mut freq = HashMap::new();
+        for doc_id in self.get_docs() {
+            let doc = self.get_doc_by_id(&doc_id)?;
+            if let Some(data) = doc.data(layer, self.get_meta()) {
+                for val in data {
+                    if condition.matches(&val) {
+                        *freq.entry(val).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+        Ok(freq)
+    } 
 }
 #[derive(Debug, Clone)]
 /// An in-memory corpus object

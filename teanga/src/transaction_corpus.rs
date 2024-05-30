@@ -236,7 +236,7 @@ impl Corpus for TransactionCorpus {
     /// # Returns
     ///
     /// The document as a map from layers names to layers
-    fn get_doc_by_id(&self, id : &str) -> TeangaResult<HashMap<String, Layer>> {
+    fn get_doc_by_id(&self, id : &str) -> TeangaResult<Document> {
         let mut id_bytes = Vec::new();
         id_bytes.push(DOCUMENT_PREFIX);
         id_bytes.extend(id.as_bytes());
@@ -250,7 +250,7 @@ impl Corpus for TransactionCorpus {
             result.insert(key, layer);
 
         }
-        Ok(result)
+        Ok(Document::new(result, &self.meta)?)
     }
 
     /// Get the documents in the corpus

@@ -219,7 +219,7 @@ impl Corpus for DiskCorpus {
     /// # Returns
     ///
     /// The document as a map from layers names to layers
-    fn get_doc_by_id(&self, id : &str) -> TeangaResult<HashMap<String, Layer>> {
+    fn get_doc_by_id(&self, id : &str) -> TeangaResult<Document> {
         let db = open_db(&self.path)?;
         let mut id_bytes = Vec::new();
         id_bytes.push(DOCUMENT_PREFIX);
@@ -234,7 +234,7 @@ impl Corpus for DiskCorpus {
             result.insert(key, layer);
 
         }
-        Ok(result)
+        Ok(Document::new(result, &self.meta)?)
     }
 
     /// Get the documents in the corpus
