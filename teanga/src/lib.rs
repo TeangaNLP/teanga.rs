@@ -23,7 +23,7 @@ mod tcf;
 pub use disk_corpus::DiskCorpus;
 pub use transaction_corpus::TransactionCorpus;
 pub use layer_builder::build_layer;
-pub use tcf::{write_tcf_corpus, layer_to_bytes, Index, IndexResult};
+pub use tcf::{write_tcf_corpus, write_tcf, read_tcf, doc_content_to_bytes, bytes_to_doc, Index, IndexResult};
 
 const DOCUMENT_PREFIX : u8 = 0x00;
 const META_PREFIX : u8 = 0x03;
@@ -61,6 +61,17 @@ pub trait WriteableCorpus : Corpus {
 
 pub trait DocumentContent<D> : IntoIterator<Item=(String, D)> where D : IntoLayer {
     fn keys(&self) -> Vec<String>;
+    fn as_map(self, meta : &HashMap<String, LayerDesc>) -> TeangaResult<HashMap<String, Layer>> where Self : Sized {
+        let mut map = HashMap::new();
+        for (k, v) in self.into_iter() {
+            if let Some(meta) = meta.get(&k) {
+                map.insert(k, v.into_layer(meta)?);
+            } else {
+                return Err(TeangaError::DocumentKeyError(k))
+            }
+        }
+        Ok(map)
+    }
 }
 
 impl<D: IntoLayer> DocumentContent<D> for HashMap<String, D> {
@@ -526,7 +537,11 @@ pub enum TeangaError {
     #[error("Teanga model error: {0}")]
     ModelError(String),
     #[error("TCF Corpora cannot be mutated")]
-    TCFMutError
+    TCFMutError,
+    #[error("TCF Read Error: {0}")]
+    TCFReadError(#[from] crate::tcf::TCFError),
+    #[error("Document key {0} not in meta")]
+    DocumentKeyError(String)
 }
 
 pub type TeangaResult<T> = Result<T, TeangaError>;

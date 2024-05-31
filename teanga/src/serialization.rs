@@ -15,37 +15,37 @@ use std::io::Write;
 use std::path::Path;
 use thiserror::Error;
 
-struct TeangaVisitor(String);
-
-impl<'de> Visitor<'de> for TeangaVisitor {
-    type Value = DiskCorpus;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("a string representing a corpus")
-    }
-
-    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-        where A: serde::de::MapAccess<'de>
-    {
-        let mut trans = TransactionCorpus::new(&self.0).map_err(serde::de::Error::custom)?;
-        while let Some(ref key) = map.next_key::<String>()? {
-            if key == "_meta" {
-                let data = map.next_value::<HashMap<String, LayerDesc>>()?;
-                trans.set_meta(data);
-            } else if key == "_order" {
-                let data = map.next_value::<Vec<String>>()?;
-                trans.set_order(data);
-            } else {
-                let doc = map.next_value::<HashMap<String, Layer>>()?;
-                let id = trans.add_doc(doc).map_err(serde::de::Error::custom)?;
-                if id[..min(id.len(), key.len())] != key[..min(id.len(), key.len())] {
-                    return Err(serde::de::Error::custom(format!("Document fails hash check: {} != {}", id, key)))
-                }
-            }
-        }
-        Ok(trans.commit().map_err(serde::de::Error::custom)?)
-    }
-}
+//struct TeangaVisitor(String);
+//
+//impl<'de> Visitor<'de> for TeangaVisitor {
+//    type Value = DiskCorpus;
+//
+//    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+//        formatter.write_str("a string representing a corpus")
+//    }
+//
+//    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+//        where A: serde::de::MapAccess<'de>
+//    {
+//        let mut trans = TransactionCorpus::new(&self.0).map_err(serde::de::Error::custom)?;
+//        while let Some(ref key) = map.next_key::<String>()? {
+//            if key == "_meta" {
+//                let data = map.next_value::<HashMap<String, LayerDesc>>()?;
+//                trans.set_meta(data);
+//            } else if key == "_order" {
+//                let data = map.next_value::<Vec<String>>()?;
+//                trans.set_order(data);
+//            } else {
+//                let doc = map.next_value::<HashMap<String, Layer>>()?;
+//                let id = trans.add_doc(doc).map_err(serde::de::Error::custom)?;
+//                if id[..min(id.len(), key.len())] != key[..min(id.len(), key.len())] {
+//                    return Err(serde::de::Error::custom(format!("Document fails hash check: {} != {}", id, key)))
+//                }
+//            }
+//        }
+//        Ok(trans.commit().map_err(serde::de::Error::custom)?)
+//    }
+//}
 
 struct TeangaVisitor2<'a, C : WriteableCorpus>(&'a mut C, bool);
 
@@ -78,18 +78,16 @@ impl <'de,'a, C: WriteableCorpus> Visitor<'de> for TeangaVisitor2<'a, C> {
     }
 }
 
-impl Serialize for DiskCorpus {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
-    {
-        let mut map = serializer.serialize_map(Some(3))?;
-        map.serialize_entry("_meta", &self.meta)?;
-        for id in &self.order {
-            eprintln!("Serializing {}", id);
-            map.serialize_entry(id, &self.get_doc_by_id(id).map_err(serde::ser::Error::custom)?)?;
-        }
-        map.end()
+fn corpus_serialize<C : Corpus, S>(c : &C, serializer: S) -> Result<S::Ok, S::Error>
+    where S: Serializer, C::Content : Serialize
+{
+    let mut map = serializer.serialize_map(Some(3))?;
+    map.serialize_entry("_meta", c.get_meta())?;
+    for id in c.get_order() {
+        eprintln!("Serializing {}", id);
+        map.serialize_entry(id, &c.get_doc_by_id(id).map_err(serde::ser::Error::custom)?)?;
     }
+    map.end()
 }
 
 pub fn pretty_yaml_serialize<W : Write>(corpus: &DiskCorpus, mut writer: W) -> Result<(), SerializeError> {
@@ -147,7 +145,7 @@ pub fn pretty_yaml_serialize<W : Write>(corpus: &DiskCorpus, mut writer: W) -> R
     Ok(())
 }
 
-pub fn read_json<'de, R: Read>(reader: R, corpus : &mut TransactionCorpus, meta_only : bool) -> Result<(), serde_json::Error> {
+pub fn read_json<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C, meta_only : bool) -> Result<(), serde_json::Error> {
     let mut deserializer = serde_json::Deserializer::from_reader(reader);
     deserializer.deserialize_any(TeangaVisitor2(corpus, meta_only))
 }
@@ -157,7 +155,7 @@ pub fn read_yaml<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C, m
     deserializer.deserialize_any(TeangaVisitor2(corpus, meta_only))
 }
 
-pub fn read_jsonl<'de, R: Read + BufRead>(reader: R, corpus : &mut TransactionCorpus) -> Result<(), TeangaJsonError> {
+pub fn read_jsonl<'de, R: BufRead, C : WriteableCorpus>(reader: R, corpus : &mut C) -> Result<(), TeangaJsonError> {
     for line in reader.lines() {
         let doc : HashMap<String, Layer> = serde_json::from_str(&line?)?;
         corpus.add_doc(doc)?;
@@ -165,45 +163,77 @@ pub fn read_jsonl<'de, R: Read + BufRead>(reader: R, corpus : &mut TransactionCo
     Ok(())
 }
 
+pub fn write_json<W : Write, C : Corpus>(mut writer : W, corpus : &C) -> Result<(), serde_json::Error> 
+    where C::Content : Serialize {
+    let mut ser = serde_json::Serializer::new(&mut writer);
+    corpus_serialize(corpus, &mut ser)
+}
+
+pub fn write_yaml<W : Write, C : Corpus>(mut writer : W, corpus : &C) -> Result<(), serde_yaml::Error> 
+    where C::Content : Serialize {
+    let mut ser = serde_yaml::Serializer::new(&mut writer);
+    corpus_serialize(corpus, &mut ser)
+}
+
+pub fn write_jsonl<W : Write, C : Corpus>(mut writer : W, corpus : &C) -> Result<(), SerializeError>
+    where C::Content : Serialize {
+    for id in corpus.get_order() {
+        let doc = corpus.get_doc_by_id(id)?;
+        serde_json::to_writer(&mut writer, &doc)?;
+        writer.write_all(b"\n")?;
+    }
+    Ok(())
+}
+
 pub fn read_corpus_from_json_string(s: &str, path : &str) -> Result<DiskCorpus, serde_json::Error> {
     let mut deserializer = serde_json::Deserializer::from_str(s);
-    deserializer.deserialize_any(TeangaVisitor(path.to_owned()))
+    let mut corpus = TransactionCorpus::new(path).map_err(serde::de::Error::custom)?;
+    deserializer.deserialize_any(TeangaVisitor2(&mut corpus, false))?;
+    Ok(corpus.commit().map_err(serde::de::Error::custom)?)
 }
 
 pub fn read_corpus_from_json_file<P: AsRef<Path>>(json_file : P, path: &str) -> Result<DiskCorpus, SerializeError> {
     let file = File::open(json_file)?;
+    let mut corpus = TransactionCorpus::new(path)?;
     let mut deserializer = serde_json::Deserializer::from_reader(file);
-    Ok(deserializer.deserialize_any(TeangaVisitor(path.to_owned()))?)
+    deserializer.deserialize_any(TeangaVisitor2(&mut corpus, false))?;
+    Ok(corpus.commit()?)
 }
 
-pub fn read_corpus_from_yaml_string(s: &str, path : &str) -> Result<DiskCorpus, serde_yaml::Error> {
+pub fn read_corpus_from_yaml_string(s: &str, path : &str) -> Result<DiskCorpus, SerializeError> {
     let deserializer = serde_yaml::Deserializer::from_str(s);
-    deserializer.deserialize_any(TeangaVisitor(path.to_owned()))
+    let mut corpus = TransactionCorpus::new(path)?;
+    deserializer.deserialize_any(TeangaVisitor2(&mut corpus, false))?;
+    Ok(corpus.commit()?)
 }
 
 pub fn read_corpus_from_yaml_file<P: AsRef<Path>>(yaml_file : P, path: &str) -> Result<DiskCorpus, SerializeError> {
     let file = File::open(yaml_file)?;
+    let mut corpus = TransactionCorpus::new(path)?;
     let deserializer = serde_yaml::Deserializer::from_reader(file);
-    Ok(deserializer.deserialize_any(TeangaVisitor(path.to_owned()))?)
+    deserializer.deserialize_any(TeangaVisitor2(&mut corpus, false))?;
+    Ok(corpus.commit()?)
 }
 
-pub fn write_corpus_to_json<P: AsRef<Path>>(corpus: &DiskCorpus, path: P) -> Result<(), serde_json::Error> {
+pub fn write_corpus_to_json<P: AsRef<Path>, C : Corpus>(corpus: &C, path: P) -> Result<(), serde_json::Error> 
+    where C::Content : Serialize {
     let mut file = File::create(path)
         .expect("Could not create file");
     let mut ser = serde_json::Serializer::new(&mut file);
-    corpus.serialize(&mut ser)
+    corpus_serialize(corpus, &mut ser)
 }
 
-pub fn write_corpus_to_json_string(corpus: &DiskCorpus) -> Result<String, SerializeError> {
+pub fn write_corpus_to_json_string<C : Corpus>(corpus: &C) -> Result<String, SerializeError> 
+    where C::Content : Serialize {
     let mut ser = serde_json::Serializer::new(Vec::new());
-    corpus.serialize(&mut ser)?;
+    corpus_serialize(corpus, &mut ser)?;
     Ok(String::from_utf8(ser.into_inner())?)
 }
 
 #[cfg(test)] // Only used for testing ATM
 fn write_corpus_to_yaml_file(corpus: &DiskCorpus, mut file : File) -> Result<(), serde_yaml::Error> {
     let mut ser = serde_yaml::Serializer::new(&mut file);
-    corpus.serialize(&mut ser)
+    corpus_serialize(corpus, &mut ser)
 }
 
 #[derive(Error,Debug)]

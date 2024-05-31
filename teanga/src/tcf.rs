@@ -2,9 +2,12 @@
 use crate::{Layer, Value, LayerDesc, Document, DataType};
 use std::collections::HashMap;
 use smaz;
-use ciborium::into_writer;
+use ciborium::{into_writer, from_reader};
 use std::io::Write;
 use lru::LruCache;
+use thiserror::Error;
+use crate::{TeangaResult, TeangaError, DocumentContent, IntoLayer, Corpus, WriteableCorpus};
+use std::io::BufRead;
 
 enum TCF {
     Characters(Vec<u8>),
@@ -28,24 +31,114 @@ pub trait Index {
     fn str(&self, idx : u32) -> Option<String>;
 }
 
+pub struct TypeIndex(Vec<u8>, usize);
+
+impl TypeIndex {
+    pub fn new() -> TypeIndex {
+        TypeIndex(Vec::new(), 0)
+    }
+
+    fn append(&mut self, v : bool) {
+        if self.1 % 8 == 0 {
+            if v {
+                self.0.push(0b1000_0000);
+            } else {
+                self.0.push(0b0000_0000);
+            }
+            self.1 += 1;
+        } else {
+            if v {
+                self.0[self.1 / 8] |= 0b1000_0000 >> (self.1 % 8);
+            }
+            self.1 += 1;
+        }
+    }
+
+    fn to_bytes(self) -> Vec<u8> {
+        self.0
+    }
+
+    fn from_bytes(data : &[u8], len : usize) -> (TypeIndex, usize) {
+        let l = len / 8 + (if len % 8 == 0 { 0 } else { 1 });
+        (TypeIndex(data[0..l].to_vec(), len), l)
+    }
+
+    fn from_reader<R : BufRead>(input : &mut R, len : usize) -> TCFResult<TypeIndex> {
+        let mut buf = vec![0u8; len / 8 + (if len % 8 == 0 { 0 } else { 1 })];
+        input.read_exact(&mut buf)?;
+        Ok(TypeIndex(buf, len)) 
+    }
+
+    fn value(&self, idx : usize) -> bool {
+        self.0[idx / 8] & (0b1000_0000 >> (idx % 8)) != 0
+    }
+}
+
 fn index_results_to_bytes(ir : &Vec<IndexResult>) -> Vec<u8> {
     let mut d = Vec::new();
+    let mut type_index = TypeIndex::new();
     for i in ir {
         match i {
             IndexResult::Index(idx) => {
+                type_index.append(false);
                 if *idx >= 2147482648 {
                     panic!("Index too large");
                 }
                 d.extend(u32_to_varbytes(*idx));
             }
             IndexResult::String(s) => {
+                type_index.append(true);
                 let b = smaz::compress(&s.as_bytes());
-                d.push(0b1000_0000 & (b.len() as u8));
+                d.extend(u32_to_varbytes(b.len() as u32));
                 d.extend(b);
             }
         }
     }
-    d
+    let mut d2 = Vec::new();
+    d2.extend(u32_to_varbytes(ir.len() as u32));
+    d2.extend(type_index.to_bytes());
+    d2.extend(d);
+    d2
+}
+
+fn bytes_to_index_results(data : &[u8]) -> TCFResult<(Vec<IndexResult>, usize)> {
+    let mut results = Vec::new();
+    let (len, len1) = varbytes_to_u32(&data[0..]);
+    let len = len as usize;
+    let (type_index, len2) = TypeIndex::from_bytes(&data[len1..], len);
+    let mut offset = len1 + len2;
+    while results.len() < len {
+        if type_index.value(results.len()) {
+            let (n, len3) = varbytes_to_u32(&data[offset..]);
+            let s = smaz::decompress(&data[offset + len3..offset + len3 + n as usize])?;
+            results.push(IndexResult::String(std::str::from_utf8(s.as_slice())?.to_string()));
+            offset += len3 + n as usize;
+        } else {
+            let (n, len) = varbytes_to_u32(&data[offset..]);
+            results.push(IndexResult::Index(n));
+            offset += len;
+        }
+    }
+    Ok((results, offset))
+}
+
+fn reader_to_index_results<R: BufRead>(input : &mut R) -> TCFResult<Vec<IndexResult>> {
+    let mut results = Vec::new();
+    let len = read_varbytes(input)? as usize;
+    let type_index = TypeIndex::from_reader(input, len)?;
+    while results.len() < len {
+        if type_index.value(results.len()) {
+            let n = read_varbytes(input)? as usize;
+            let mut buf = vec![0u8; n];
+            input.read_exact(&mut buf)?;
+            let s = smaz::decompress(&buf)?;
+            results.push(IndexResult::String(std::str::from_utf8(s.as_slice())?.to_string()));
+        } else {
+            let n = read_varbytes(input)?;
+            results.push(IndexResult::Index(n));
+        }
+    }
+    Ok(results)
 }
 
 fn to_delta(v : Vec<u32>) -> Vec<u32> {
@@ -58,9 +151,23 @@ fn to_delta(v : Vec<u32>) -> Vec<u32> {
     }).collect()
 }
 
+fn from_delta(v : Vec<u32>) -> Vec<u32> {
+    let mut l = 0;
+    v.into_iter().map(|x| {
+        l += x;
+        l
+    }).collect()
+}
+
 fn to_diff(v1 : &Vec<u32>, v2 : Vec<u32>) -> Vec<u32> {
     v2.into_iter().zip(v1.iter()).map(|(x,y)| y - x ).collect()
 }
+
+fn from_diff(v1 : &Vec<u32>, v2 : Vec<u32>) -> Vec<u32> {
+    v2.into_iter().zip(v1.iter()).map(|(x,y)| x + y ).collect()
+}
+
+pub static TCF_EMPTY_LAYER : u8 = 0b1111_1111;
 
 impl TCF {
     pub fn from_layer<I : Index>(l : &Layer, idx : &mut I, ld : &LayerDesc) -> TCF {
@@ -112,12 +219,59 @@ impl TCF {
         }
     }
 
+    pub fn to_layer<I : Index>(self, index : &I) -> Layer {
+        match self {
+            TCF::Characters(c) => {
+                let s : String = std::str::from_utf8(smaz::decompress(&c).unwrap().as_slice()).unwrap().to_string();
+                Layer::Characters(s)
+            },
+            TCF::L1(l) => Layer::L1(l.to_vec()),
+            TCF::L2(l1, l2) => {
+                let v1 = l1.to_vec();
+                let v2 = l2.to_vec();
+                let v1 = from_delta(v1);
+                let v2 = from_diff(&v1, v2);
+                Layer::L2(v1.into_iter().zip(v2.into_iter()).map(|(x,y)| (x, y)).collect())
+            },
+            TCF::L3(l1, l2, l3) => {
+                let v1 = l1.to_vec();
+                let v2 = l2.to_vec();
+                let v3 = l3.to_vec();
+                Layer::L3(v1.into_iter().zip(v2.into_iter()).zip(v3.into_iter()).map(|((x,y),z)| (x, y, z)).collect())
+            },
+            TCF::LS(l) => {
+                Layer::LS(l.to_vec(index))
+            },
+            TCF::L1S(l1, l2) => {
+                let v1 = l1.to_vec();
+                let v2 = l2.to_vec(index);
+                Layer::L1S(v1.into_iter().zip(v2.into_iter()).map(|(x,y)| (x, y)).collect())
+            },
+            TCF::L2S(l1, l2, l3) => {
+                let v1 = l1.to_vec();
+                let v2 = l2.to_vec();
+                let v3 = l3.to_vec(index);
+                Layer::L2S(v1.into_iter().zip(v2.into_iter()).zip(v3.into_iter()).map(|((x,y),z)| (x, y, z)).collect())
+            },
+            TCF::L3S(l1, l2, l3, l4) => {
+                let v1 = l1.to_vec();
+                let v2 = l2.to_vec();
+                let v3 = l3.to_vec();
+                let v4 = l4.to_vec(index);
+                Layer::L3S(v1.into_iter().zip(v2.into_iter()).zip(v3.into_iter()).zip(v4.into_iter()).map(|(((x,y),z),w)| (x, y, z, w)).collect())
+            },
+            TCF::MetaLayer(l) => Layer::MetaLayer(l)
+        }
+    }
+
     pub fn into_bytes(self) -> Vec<u8> {
         match self {
             TCF::Characters(c) => {
                 let mut d = Vec::new();
                 d.push(0);
+                d.extend((c.len() as u16).to_be_bytes().iter());
                 d.extend(c);
+                d.push(0);
                 d
             }
             TCF::L1(l) => {
@@ -174,22 +328,232 @@ impl TCF {
             TCF::MetaLayer(l) => {
                 let mut d = Vec::new();
                 d.push(8);
-                into_writer(&l, &mut d).unwrap();
+                let mut d2 = Vec::new();
+                into_writer(&l, &mut d2).unwrap();
+                d.extend((d2.len() as u32).to_be_bytes().iter());
+                d.extend(d2);
                 d
             }
         }
     }
+
+    pub fn from_bytes(bytes : &[u8], offset : usize, layer_desc : &LayerDesc) -> TCFResult<(TCF, usize)> {
+        match bytes[offset] {
+            0 => {
+                let len = u16::from_be_bytes([bytes[offset + 1], bytes[offset + 2]]) as usize;
+                let c = smaz::decompress(&bytes[offset + 1..offset + len + 3])?;
+                Ok((TCF::Characters(c), offset + len + 3))
+            },
+            1 => {
+                let (l, len) = TCFIndex::from_bytes(&bytes[offset + 1..])?;
+                Ok((TCF::L1(l), offset + len + 1))
+            },
+            2 => {
+                let (l1, len1) = TCFIndex::from_bytes(&bytes[offset + 1..])?;
+                let (l2, len2) = TCFIndex::from_bytes(&bytes[offset + 1 + len1..])?;
+                Ok((TCF::L2(l1, l2), offset + len1 + len2 + 1))
+            },
+            3 => {
+                let (l1, len1) = TCFIndex::from_bytes(&bytes[offset + 1..])?;
+                let (l2, len2) = TCFIndex::from_bytes(&bytes[offset + 1 + len1..])?;
+                let (l3, len3) = TCFIndex::from_bytes(&bytes[offset + 1 + len1 + len2..])?;
+                Ok((TCF::L3(l1, l2, l3), offset + len1 + len2 + len3 + 1))
+            },
+            4 => {
+                let (l, len) = TCFData::from_bytes(&bytes[offset + 1..], layer_desc)?;
+                Ok((TCF::LS(l), offset + len + 1))
+
+            },
+            5 => {
+                let (l1, len1) = TCFIndex::from_bytes(&bytes[offset + 1..])?;
+                let (l2, len2) = TCFData::from_bytes(&bytes[offset + 1 + len1..], layer_desc)?;
+                Ok((TCF::L1S(l1, l2), offset + len1 + len2 + 1))
+            },
+            6 => {
+                let (l1, len1) = TCFIndex::from_bytes(&bytes[offset + 1..])?;
+                let (l2, len2) = TCFIndex::from_bytes(&bytes[offset + 1 + len1..])?;
+                let (l3, len3) = TCFData::from_bytes(&bytes[offset + 1 + len1 + len2..], layer_desc)?;
+                Ok((TCF::L2S(l1, l2, l3), offset + len1 + len2 + len3 + 1))
+            },
+            7 => {
+                let (l1, len1) = TCFIndex::from_bytes(&bytes[offset + 1..])?;
+                let (l2, len2) = TCFIndex::from_bytes(&bytes[offset + 1 + len1..])?;
+                let (l3, len3) = TCFIndex::from_bytes(&bytes[offset + 1 + len1 + len2..])?;
+                let (l4, len4) = TCFData::from_bytes(&bytes[offset + 1 + len1 + len2 + len3..], layer_desc)?;
+                Ok((TCF::L3S(l1, l2, l3, l4), offset + len1 + len2 + len3 + len4 + 1))
+            },
+            8 => {
+                let len = u32::from_be_bytes([bytes[offset + 1], bytes[offset + 2], bytes[offset + 3], bytes[offset + 4]]) as usize;
+                let l = from_reader(&bytes[offset + 5..offset + 5 + len])?;
+                Ok((TCF::MetaLayer(l), offset + len + 5))
+            },
+            x => {
+                if x == TCF_EMPTY_LAYER {
+                    eprintln!("Read empty layer byte in to_layer");
+                }
+                Err(TCFError::InvalidByte)
+            }
+        }
+    }
+
+    pub fn from_reader<R : BufRead>(bytes : &mut R, layer_desc : &LayerDesc) -> TCFResult<Option<TCF>> {
+        let mut buf = vec![0u8; 1];
+        bytes.read_exact(&mut buf)?;
+        match buf[0] {
+            0 => {
+                let mut buf = vec![0u8; 2];
+                bytes.read_exact(&mut buf)?;
+                let len = u16::from_be_bytes([buf[0], buf[1]]) as usize;
+                let mut buf = vec![0u8; len];
+                bytes.read_exact(&mut buf)?;
+                let c = smaz::decompress(&buf)?;
+                Ok(Some(TCF::Characters(c)))
+            },
+            1 => {
+                Ok(Some(TCF::L1(TCFIndex::from_reader(bytes)?)))
+            },
+            2 => {
+                let l1 = TCFIndex::from_reader(bytes)?;
+                let l2 = TCFIndex::from_reader(bytes)?;
+                Ok(Some(TCF::L2(l1, l2)))
+            },
+            3 => {
+                let l1 = TCFIndex::from_reader(bytes)?;
+                let l2 = TCFIndex::from_reader(bytes)?;
+                let l3 = TCFIndex::from_reader(bytes)?;
+                Ok(Some(TCF::L3(l1, l2, l3)))
+            },
+            4 => {
+                let l = TCFData::from_reader(bytes, layer_desc)?;
+                Ok(Some(TCF::LS(l)))
+            },
+            5 => {
+                let l1 = TCFIndex::from_reader(bytes)?;
+                let l2 = TCFData::from_reader(bytes, layer_desc)?;
+                Ok(Some(TCF::L1S(l1, l2)))
+            },
+            6 => {
+                let l1 = TCFIndex::from_reader(bytes)?;
+                let l2 = TCFIndex::from_reader(bytes)?;
+                let l3 = TCFData::from_reader(bytes, layer_desc)?;
+                Ok(Some(TCF::L2S(l1, l2, l3)))
+            },
+            7 => {
+                let l1 = TCFIndex::from_reader(bytes)?;
+                let l2 = TCFIndex::from_reader(bytes)?;
+                let l3 = TCFIndex::from_reader(bytes)?;
+                let l4 = TCFData::from_reader(bytes, layer_desc)?;
+                Ok(Some(TCF::L3S(l1, l2, l3, l4)))
+            },
+            8 => {
+                let mut buf = vec![0u8; 4];
+                bytes.read_exact(&mut buf)?;
+                let len = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
+                let mut buf = vec![0u8; len];
+                bytes.read_exact(&mut buf)?;
+                let l = from_reader(&buf[..])?;
+                Ok(Some(TCF::MetaLayer(l)))
+            },
+            x => {
+                if x == TCF_EMPTY_LAYER {
+                    Ok(None)
+                } else {
+                    Err(TCFError::InvalidByte)
+                }
+            }
+        }
+    }
+
 }
 
-pub fn layer_to_bytes<I: Index>(layer : &Layer, idx : &mut I, ld : &LayerDesc) -> Vec<u8> {
+fn layer_to_bytes<I: Index>(layer : &Layer, idx : &mut I, ld : &LayerDesc) -> Vec<u8> {
     TCF::from_layer(layer, idx, ld).into_bytes()
+}
+
+fn bytes_to_layer<I : Index>(bytes : &[u8], idx : &I, layer_desc : &LayerDesc) -> TCFResult<(Layer, usize)> {
+    let (tcf, len) = TCF::from_bytes(bytes, 0, layer_desc)?;
+    Ok((tcf.to_layer(idx), len))
+}
+
+fn read_layer<R : BufRead, I : Index>(bytes : &mut R, idx : &I, layer_desc : &LayerDesc) -> TCFResult<Option<Layer>> {
+    if let Some(tcf) = TCF::from_reader(bytes, layer_desc)? {
+        Ok(Some(tcf.to_layer(idx)))
+    } else {
+        Ok(None)
+    }
+}
+
+
+pub fn doc_content_to_bytes<I : Index, DC: DocumentContent<L>, L : IntoLayer>(content : DC,
+    meta_keys : &Vec<String>,
+    meta : &HashMap<String, LayerDesc>,
+    cache : &mut I) -> TeangaResult<Vec<u8>> {
+    let content = content.as_map(meta)?;
+    let mut out = Vec::new();
+    for key in meta_keys.iter() {
+        if let Some(layer) = content.get(key) {
+            let b = layer_to_bytes(&layer,
+                cache, meta.get(key).unwrap());
+            out.extend(b.as_slice());
+        } else {
+            // TCF uses the first byte to identify the layer type, starting
+            // from 0, so we use this to indicate a missing layer
+            out.push(TCF_EMPTY_LAYER);
+        }
+    }
+    Ok(out)
+}
+
+pub fn bytes_to_doc<I : Index>(bytes : &[u8], offset : usize,
+    meta_keys : &Vec<String>,
+    meta : &HashMap<String, LayerDesc>,
+    cache : &I) -> TeangaResult<Document> {
+    let mut layers = Vec::new();
+    let mut i = offset;
+    for key in meta_keys.iter() {
+        if bytes[i] != TCF_EMPTY_LAYER {
+            let (layer, n) = bytes_to_layer(&bytes[i..], 
+                cache, meta.get(key).ok_or_else(|| TeangaError::DocumentKeyError(key.clone()))?)?;
+            layers.push((key.clone(), layer));
+            i += n;
+        } else {
+            i += 1;
+        }
+    }
+    Document::new(layers, meta)
+}
+
+#[derive(Error, Debug)]
+enum ReadDocError {
+    #[error("Model error: {0}")]
+    TeangaError(#[from] TeangaError),
+    #[error("IO error: {0}")]
+    IOError(#[from] std::io::Error),
+    #[error("Document key error: {0}")]
+    DocumentKeyError(String),
+    #[error("TCF error: {0}")]
+    TCFError(#[from] TCFError)
+}
+
+pub fn read_doc<R : BufRead, I : Index>(input : &mut R, meta_keys : &Vec<String>,
+    meta : &HashMap<String, LayerDesc>, cache : &mut I) -> Result<Document, ReadDocError> {
+    let mut layers = Vec::new();
+    for key in meta_keys.iter() {
+        let layer_desc = meta.get(key)
+            .ok_or_else(|| ReadDocError::DocumentKeyError(key.clone()))?;
+        if let Some(layer) = read_layer(input, cache, layer_desc)? {
+            layers.push((key.clone(), layer));
+        }
+    }
+    Ok(Document::new(layers, meta)?)
 }
 
 pub fn write_tcf_corpus<W : Write, I>(
     mut out : W,
     meta : &HashMap<String, LayerDesc>,
     data : I,
-    byte_counts : &mut HashMap<String, u32>) -> std::io::Result<()> 
+    byte_counts : &mut HashMap<String, u32>)
+        -> std::io::Result<()>
         where I : Iterator<Item = (String, Document)> {
     into_writer(meta, &mut out).unwrap();
     let mut cache = LRUIndex::new(1000);
@@ -207,9 +571,85 @@ pub fn write_tcf_corpus<W : Write, I>(
         }
     }
     //into_writer(&cache.vec, &mut out).unwrap();
-
     Ok(())
 }
+
+#[derive(Error, Debug)]
+pub enum TCFWriteError {
+    #[error("IO error: {0}")]
+    IOError(#[from] std::io::Error),
+    #[error("Teanga error: {0}")]
+    TeangaError(#[from] TeangaError)
+}
+
+pub fn write_tcf<W : Write, C: Corpus>(
+    mut out : W, corpus : &C) -> Result<(), TCFWriteError> {
+    let mut meta_bytes : Vec<u8> = Vec::new();
+    into_writer(corpus.get_meta(), &mut meta_bytes).unwrap();
+    out.write(meta_bytes.len().to_be_bytes().as_ref())?;
+    out.write(meta_bytes.as_slice())?;
+    let mut cache = LRUIndex::new(1000);
+    let mut meta_keys : Vec<String> = corpus.get_meta().keys().cloned().collect();
+    meta_keys.sort();
+    for doc_id in corpus.get_order() {
+        let doc = corpus.get_doc_by_id(doc_id)?;
+        out.write(doc_content_to_bytes(doc,
+                &meta_keys, corpus.get_meta(), &mut cache)?.as_slice())?;
+    }
+    Ok(())
+}
+
+#[derive(Error, Debug)]
+pub enum TCFReadError {
+    #[error("IO error: {0}")]
+    IOError(#[from] std::io::Error),
+    #[error("Teanga error: {0}")]
+    TeangaError(#[from] TeangaError),
+    #[error("Ciborium error: {0}")]
+    CiboriumError(#[from] ciborium::de::Error<std::io::Error>),
+    #[error("TCF error: {0}")]
+    TCFError(#[from] TCFError)
+}
+
+
+pub fn read_tcf<R: std::io::BufRead, C: WriteableCorpus>(
+    input : &mut R, corpus : &mut C) -> Result<(), TCFReadError> {
+    let mut meta_bytes = vec![0u8; 4];
+    input.read_exact(meta_bytes.as_mut_slice())?;
+    let len = u32::from_be_bytes([meta_bytes[0], meta_bytes[1], meta_bytes[2], meta_bytes[3]]) as usize;
+    let mut meta_bytes = vec![0u8; len];
+    input.read_exact(meta_bytes.as_mut_slice())?;
+    let meta : HashMap<String, LayerDesc> = from_reader(meta_bytes.as_slice())?;
+    corpus.set_meta(meta.clone());
+    let mut cache = LRUIndex::new(1000);
+    let mut meta_keys : Vec<String> = meta.keys().cloned().collect();
+    meta_keys.sort();
+    loop {
+        let doc = match read_doc(input, &meta_keys, &meta, &mut cache) {
+            Ok(d) => d,
+            Err(ReadDocError::IOError(e)) => {
+                if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                    break;
+                } else {
+                    return Err(TCFReadError::IOError(e));
+                }
+            },
+            Err(ReadDocError::TeangaError(e)) => {
+                return Err(TCFReadError::TeangaError(e));
+            },
+            Err(ReadDocError::DocumentKeyError(e)) => {
+                return Err(TeangaError::DocumentKeyError(e).into());
+            },
+            Err(ReadDocError::TCFError(e)) => {
+                return Err(TCFReadError::TCFError(e));
+            }
+        };
+        corpus.add_doc(doc)?;
+    }
+    Ok(())
+}
+
+        
 
 struct LRUIndex {
     map : HashMap<String, u32>,
@@ -284,6 +724,20 @@ impl TCFData {
         }
     }
 
+    pub fn to_vec<I : Index>(&self, index : &I) -> Vec<String> {
+        match self {
+            TCFData::String(v) => {
+                v.iter().map(|i| match i {
+                    IndexResult::String(s) => s.clone(),
+                    IndexResult::Index(i) => index.str(*i).unwrap()
+                }).collect()
+            }
+            TCFData::Enum(v) => {
+                v.iter().map(|i| i.to_string()).collect()
+            }
+        }
+    }
+
     pub fn into_bytes(self) -> Vec<u8> {
         match self {
             TCFData::String(v) => {
@@ -294,6 +748,45 @@ impl TCFData {
             }
         }
     }
+
+    pub fn from_bytes(data : &[u8], ld : &LayerDesc) -> TCFResult<(TCFData, usize)> {
+        match ld.data {
+            Some(DataType::String) => {
+                let (v, len) = bytes_to_index_results(data)?;
+                Ok((TCFData::String(v), len))
+            }
+            Some(DataType::Enum(_)) => {
+                let (v, len) = TCFIndex::from_bytes(data)?;
+                Ok((TCFData::Enum(v.to_vec()), len))
+            }
+            Some(DataType::Link) => {
+                panic!("Link data type not supported");
+            }
+            None => {
+                panic!("No data type specified");
+            }
+        }
+    }
+
+    pub fn from_reader<R: BufRead>(input : &mut R, ld : &LayerDesc) -> TCFResult<TCFData> {
+        match ld.data {
+            Some(DataType::String) => {
+                let v = reader_to_index_results(input)?;
+                Ok(TCFData::String(v))
+            }
+            Some(DataType::Enum(_)) => {
+                let v = TCFIndex::from_reader(input)?;
+                Ok(TCFData::Enum(v.to_vec()))
+            }
+            Some(DataType::Link) => {
+                panic!("Link data type not supported");
+            }
+            None => {
+                panic!("No data type specified");
+            }
+        }
+    }
+
 }
 
 struct TCFIndex {
@@ -381,15 +874,29 @@ impl TCFIndex {
         d
     }
 
-    pub fn from_bytes(bytes : &Vec<u8>) -> TCFIndex {
+    pub fn from_bytes(bytes : &[u8]) -> TCFResult<(TCFIndex, usize)> {
         let precision = bytes[0];
         let length = u32::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]) as usize;
-        let data = bytes[5..].to_vec();
-        TCFIndex {
+        let data = bytes[5..5+length].to_vec();
+        Ok((TCFIndex {
             precision,
             length,
             data,
-        }
+        }, 5 + length))
+    }
+
+    pub fn from_reader<R : BufRead>(input : &mut R) -> TCFResult<TCFIndex> {
+        let mut buf = vec![0u8; 5];
+        input.read_exact(&mut buf)?;
+        let precision = buf[0];
+        let length = u32::from_be_bytes([buf[1], buf[2], buf[3], buf[4]]) as usize;
+        let mut buf = vec![0u8; length];
+        input.read_exact(&mut buf)?;
+        Ok(TCFIndex {
+            precision,
+            length,
+            data: Vec::from(buf)
+        })
     }
 }
 
@@ -470,15 +977,46 @@ fn u32_to_varbytes(n : u32) -> Vec<u8> {
     }
 }
 
-fn varbytes_to_u32(bytes : &Vec<u8>) -> u32 {
+fn varbytes_to_u32(bytes : &[u8]) -> (u32,usize) {
     let mut n = 0u32;
+    let mut len = 0;
     for (i, b) in bytes.iter().enumerate() {
         n += ((b & 0b0111_1111) as u32) << ((bytes.len() - i - 1) * 7);
+        len += 1;
         if *b & 0b1000_0000 == 0 {
             break;
         }
     }
-    n
+    (n, len)
+}
+
+fn read_varbytes<R : BufRead>(input : &mut R) -> std::io::Result<u32> {
+    let mut bytes = Vec::new();
+    loop {
+        let mut buf = [0u8; 1];
+        input.read_exact(&mut buf)?;
+        bytes.push(buf[0]);
+        if buf[0] & 0b1000_0000 == 0 {
+            break;
+        }
+    }
+    Ok(varbytes_to_u32(&bytes).0)
+}
+
+pub type TCFResult<T> = Result<T, TCFError>;
+
+#[derive(Error, Debug)]
+pub enum TCFError {
+    #[error("Smaz Error: {0}")]
+    SmazError(#[from] smaz::DecompressError),
+    #[error("Ciborium Error: {0}")]
+    CiboriumError(#[from] ciborium::de::Error<std::io::Error>),
+    #[error("UTF-8 Error: {0}")]
+    Utf8Error(#[from] std::str::Utf8Error),
+    #[error("IO Error: {0}")]
+    IOError(#[from] std::io::Error),
+    #[error("Invalid TCF byte")]
+    InvalidByte,
 }
 
 #[cfg(test)]
@@ -541,7 +1079,7 @@ mod tests {
     fn test_var_bytes() {
         for n in vec![0,1,10,100,1000,10000,100000, 1000000, 10000000, 100000000] {
             let bytes = u32_to_varbytes(n);
-            let n2 = varbytes_to_u32(&bytes);
+            let (n2, _) = varbytes_to_u32(&bytes);
             assert_eq!(n, n2);
         }
     }

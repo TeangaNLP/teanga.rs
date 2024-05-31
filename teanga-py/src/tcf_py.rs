@@ -2,11 +2,13 @@ use pyo3::prelude::*;
 use std::collections::HashMap;
 use crate::{PyLayerDesc, PyLayerType, PyValue, PyDataType, PyRawLayer};
 use pyo3::types::PyByteArray;
-use teanga::{LayerDesc, teanga_id, Document, Index, IndexResult};
+use teanga::{LayerDesc, teanga_id, Document, Index, IndexResult, 
+    TeangaResult, TeangaError, bytes_to_doc, doc_content_to_bytes};
 
 #[pyclass]
 pub struct TCFPyCorpus {
     pub meta : HashMap<String, LayerDesc>,
+    pub meta_keys : Vec<String>,
     pub data : Py<PyByteArray>,
     pub offsets : HashMap<String, usize>,
     pub order : Vec<String>,
@@ -27,6 +29,7 @@ impl TCFPyCorpus {
     pub fn new<'p>(py : Python<'p>) -> PyResult<TCFPyCorpus> {
         Ok(TCFPyCorpus {
             meta: HashMap::new(),
+            meta_keys: Vec::new(),
             order: Vec::new(),
             data: PyByteArray::new_bound(py, &[0u8; 0]).into(),
             offsets: HashMap::new(),
@@ -47,6 +50,8 @@ impl TCFPyCorpus {
             meta.into_iter().map(|(k, v)| (k, v.val())).collect()
             ).map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?;
         self.meta.insert(name, layer_desc);
+        self.meta_keys = self.meta.keys().cloned().collect();
+        self.meta_keys.sort();
             Ok(())
     }
 
@@ -56,7 +61,9 @@ impl TCFPyCorpus {
             map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?;
         let id = teanga_id(&self.order, &document);
         let data = doc_content_to_bytes(doc,
-            &self.meta, &mut self.index);
+            &self.meta_keys,
+            &self.meta, &mut self.index)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?;
         self.order.push(id.clone());
         let d = self.data.bind(py);
         let n = d.len();
@@ -78,7 +85,9 @@ impl TCFPyCorpus {
         if let Some(i) = self.offsets.get(id) {
             let data = self.data.bind(py);
             let doc = unsafe {
-                bytes_to_doc(data.as_bytes(), *i)
+                bytes_to_doc(data.as_bytes(), *i,
+                    &self.meta_keys, &self.meta, &self.index)
+                    .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?
             };
             Ok(doc.content.iter().map(|(k, v)| (k.clone(), PyRawLayer(v.clone()))).collect())
         } else {
@@ -129,7 +138,6 @@ impl TCFPyIndex {
     }
 }
 
-
 impl Index for TCFPyIndex {
     fn idx(&mut self, str : &String) -> IndexResult {
         if self.keys.contains_key(str) {
@@ -150,20 +158,3 @@ impl Index for TCFPyIndex {
     }
 }
 
-pub fn doc_content_to_bytes<I : Index>(content : HashMap<String, PyRawLayer>,
-    meta : &HashMap<String, LayerDesc>,
-    cache : &mut I) -> Vec<u8> {
-    let mut out = Vec::new();
-    for (key, layer) in content {
-        out.extend(key.as_bytes());
-        out.push(0);
-        let b = teanga::layer_to_bytes(&layer.0,
-            cache, meta.get(&key).unwrap());
-        out.extend(b.as_slice());
-    }
-    out
-}
-
-pub fn bytes_to_doc(bytes : &[u8], offset : usize) -> Document {
-    panic!("TODO")
-}

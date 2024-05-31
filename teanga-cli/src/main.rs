@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use teanga::TransactionCorpus;
 use std::fs::File;
 use flate2;
@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::io::BufWriter;
 use std::io::BufRead;
 use teanga::Layer;
-use teanga::{write_tcf_corpus, Document, SimpleCorpus};
+use teanga::{read_tcf, write_tcf, Document, SimpleCorpus};
 
 /// Command line arguments
 #[derive(Parser, Debug)]
@@ -24,7 +24,7 @@ struct Args {
 #[derive(Parser, Debug)]
 enum SubCommand {
     Load(LoadCommand),
-    ToCbor(ToCborCommand),
+    Convert(ConvertCommand),
 }
 
 /// Command to load a file into the corpus
@@ -46,18 +46,59 @@ struct LoadCommand {
     jsonl: bool
 }
 
+#[derive(ValueEnum, Debug, Clone)]
+#[clap(rename_all = "lowercase")]
+enum Format {
+    JSON,
+    JSONL,
+    YAML,
+    TCF,
+    Guess
+}
+
+impl Format {
+    fn guess(&self, file : &str) -> Format {
+        match self {
+            Format::Guess => {
+                if file.ends_with(".json") || file.ends_with(".json.gz") {
+                    Format::JSON
+                } else if file.ends_with(".jsonl") {
+                    Format::JSONL
+                } else if file.ends_with(".yaml") || file.ends_with(".yml") {
+                    Format::YAML
+                } else if file.ends_with(".tcf") {
+                    Format::TCF
+                } else {
+                    Format::YAML
+                }
+            }
+            _ => self.clone()
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
-#[command(name = "to-cbor", about = "Convert a Teanga Corpus to CBOR")]
-struct ToCborCommand {
-    /// The path to the DB
-    file: String,
+#[command(name = "convert", about = "Convert a Teanga Corpus")]
+struct ConvertCommand {
+    /// The file to convert
+    input: String,
 
     /// The output file
     output: String,
 
-    /// Read the file as JSONL (one JSON object per line)
-    #[arg(long)]
-    jsonl: bool
+    /// The format of the input file
+    #[arg(short,long)]
+    #[clap(default_value="guess")]
+    input_format: Format,
+
+    /// The format of the output file
+    #[arg(short,long)]
+    #[clap(default_value="guess")]
+    output_format: Format,
+
+    /// The meta information, as a separate YAML file (required for JSONL)
+    #[arg(short,long)]
+    meta_file: Option<String>
 }
 
 impl LoadCommand {
@@ -91,7 +132,7 @@ impl LoadCommand {
     }
 }
 
-impl ToCborCommand {
+impl ConvertCommand {
 //    fn run(&self) -> Result<(), String> {
 //        let output = BufWriter::new(File::create(&self.output)
 //            .map_err(|e| format!("Failed to create output file: {}", e))?);
@@ -109,26 +150,65 @@ impl ToCborCommand {
 //        Ok(())
 //    }
     fn run(&self) -> Result<(), String> {
+        let mut input = if self.input.ends_with(".gz") {
+            let reader = BufReader::new(flate2::read::GzDecoder::new(File::open(&self.input)
+                .map_err(|e| format!("Failed to open input file: {}", e))?));
+            Box::new(reader) as Box<dyn std::io::BufRead>
+        } else {
+            Box::new(BufReader::new(File::open(&self.input)
+                .map_err(|e| format!("Failed to open input file: {}", e))?)) as Box<dyn std::io::BufRead>
+        };
         let mut output = BufWriter::new(File::create(&self.output)
             .map_err(|e| format!("Failed to create output file: {}", e))?);
-        let mut all_data = Vec::new();
-        let mut corpus = SimpleCorpus::new();
-        corpus.read_yaml_header(File::open("c4-header.yaml")
-            .map_err(|e| format!("Failed to open meta file: {}", e))?).unwrap();
-
-        for line in BufReader::new(flate2::read::GzDecoder::new(File::open(&self.file)
-            .map_err(|e| format!("Failed to open file: {}", e))?))
-            .lines() {
-            let line = line.map_err(|e| format!("Failed to read line: {}", e))?;
-            let data : HashMap<String, Layer> = serde_json::from_str(&line)
-                .map_err(|e| format!("Failed to parse JSON: {}", e))?;
-            all_data.push(("".to_string(), Document{ content: data }));
+        let mut corpus = teanga::SimpleCorpus::new();
+        match self.meta_file {
+            Some(ref meta_file) => {
+                    corpus.read_yaml_header(File::open(meta_file)
+                        .map_err(|e| format!("Failed to open meta file: {}", e))?).unwrap();
+                        }
+            None => {}
         }
-        let mut byte_counts = HashMap::new();
-        write_tcf_corpus(output, &corpus.meta,
-            all_data.into_iter(), &mut byte_counts).map_err(|e| format!("Failed to write TCF: {}", e))?;
-        for (key, value) in byte_counts {
-            println!("{}: {}", key, value);
+
+        match self.input_format.guess(&self.input) {
+            Format::JSON => {
+                teanga::serialization::read_json(&mut input, &mut corpus, false)
+                    .map_err(|e| format!("Failed to read JSON: {}", e))?;
+            }
+            Format::JSONL => {
+                if self.meta_file.is_none() {
+                    return Err("Meta file is required for JSONL".to_string());
+                }
+                teanga::serialization::read_jsonl(&mut input, &mut corpus)
+                    .map_err(|e| format!("Failed to read JSONL: {}", e))?;
+            }
+            Format::YAML => {
+                teanga::serialization::read_yaml(&mut input, &mut corpus, false)
+                    .map_err(|e| format!("Failed to read YAML: {}", e))?;
+            }
+            Format::TCF => {
+                teanga::read_tcf(&mut input, &mut corpus)
+                    .map_err(|e| format!("Failed to read TCF: {}", e))?;
+            }
+            Format::Guess => panic!("unreachable")
+        }
+        match self.output_format.guess(&self.output) {
+            Format::JSON => {
+                teanga::serialization::write_json(&mut output, &corpus)
+                    .map_err(|e| format!("Failed to write JSON: {}", e))?;
+            }
+            Format::JSONL => {
+                teanga::serialization::write_jsonl(&mut output, &corpus)
+                    .map_err(|e| format!("Failed to write JSONL: {}", e))?;
+            }
+            Format::YAML => {
+                teanga::serialization::write_yaml(&mut output, &corpus)
+                    .map_err(|e| format!("Failed to write YAML: {}", e))?;
+            }
+            Format::TCF => {
+                teanga::write_tcf(&mut output, &corpus)
+                    .map_err(|e| format!("Failed to write TCF: {}", e))?;
+            }
+            Format::Guess => panic!("unreachable")
         }
         Ok(())
     }
@@ -140,7 +220,7 @@ fn main() {
         SubCommand::Load(load) => {
             load.run().unwrap();
         },
-        SubCommand::ToCbor(to_cbor) => {
+        SubCommand::Convert(to_cbor) => {
             to_cbor.run().unwrap();
         }
     }
