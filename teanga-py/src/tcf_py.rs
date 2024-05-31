@@ -81,12 +81,13 @@ impl TCFPyCorpus {
         Ok(())
     }   
 
-    pub fn get_doc_by_id<'p>(&self, py : Python<'p>, id : &str) -> PyResult<HashMap<String, PyRawLayer>> {
+    pub fn get_doc_by_id<'p>(&mut self, py : Python<'p>, id : &str) -> PyResult<HashMap<String, PyRawLayer>> {
         if let Some(i) = self.offsets.get(id) {
             let data = self.data.bind(py);
+            // TODO: Index should be initialized already!
             let doc = unsafe {
                 bytes_to_doc(data.as_bytes(), *i,
-                    &self.meta_keys, &self.meta, &self.index)
+                    &self.meta_keys, &self.meta, &mut self.index)
                     .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?
             };
             Ok(doc.content.iter().map(|(k, v)| (k.clone(), PyRawLayer(v.clone()))).collect())

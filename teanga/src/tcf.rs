@@ -219,7 +219,7 @@ impl TCF {
         }
     }
 
-    pub fn to_layer<I : Index>(self, index : &I) -> Layer {
+    pub fn to_layer<I : Index>(self, index : &mut I) -> Layer {
         match self {
             TCF::Characters(c) => {
                 let s : String = std::str::from_utf8(smaz::decompress(&c).unwrap().as_slice()).unwrap().to_string();
@@ -470,12 +470,12 @@ fn layer_to_bytes<I: Index>(layer : &Layer, idx : &mut I, ld : &LayerDesc) -> Ve
     TCF::from_layer(layer, idx, ld).into_bytes()
 }
 
-fn bytes_to_layer<I : Index>(bytes : &[u8], idx : &I, layer_desc : &LayerDesc) -> TCFResult<(Layer, usize)> {
+fn bytes_to_layer<I : Index>(bytes : &[u8], idx : &mut I, layer_desc : &LayerDesc) -> TCFResult<(Layer, usize)> {
     let (tcf, len) = TCF::from_bytes(bytes, 0, layer_desc)?;
     Ok((tcf.to_layer(idx), len))
 }
 
-fn read_layer<R : BufRead, I : Index>(bytes : &mut R, idx : &I, layer_desc : &LayerDesc) -> TCFResult<Option<Layer>> {
+fn read_layer<R : BufRead, I : Index>(bytes : &mut R, idx : &mut I, layer_desc : &LayerDesc) -> TCFResult<Option<Layer>> {
     if let Some(tcf) = TCF::from_reader(bytes, layer_desc)? {
         Ok(Some(tcf.to_layer(idx)))
     } else {
@@ -507,7 +507,7 @@ pub fn doc_content_to_bytes<I : Index, DC: DocumentContent<L>, L : IntoLayer>(co
 pub fn bytes_to_doc<I : Index>(bytes : &[u8], offset : usize,
     meta_keys : &Vec<String>,
     meta : &HashMap<String, LayerDesc>,
-    cache : &I) -> TeangaResult<Document> {
+    cache : &mut I) -> TeangaResult<Document> {
     let mut layers = Vec::new();
     let mut i = offset;
     for key in meta_keys.iter() {
@@ -586,7 +586,7 @@ pub fn write_tcf<W : Write, C: Corpus>(
     mut out : W, corpus : &C) -> Result<(), TCFWriteError> {
     let mut meta_bytes : Vec<u8> = Vec::new();
     into_writer(corpus.get_meta(), &mut meta_bytes).unwrap();
-    out.write(meta_bytes.len().to_be_bytes().as_ref())?;
+    out.write((meta_bytes.len() as u32).to_be_bytes().as_ref())?;
     out.write(meta_bytes.as_slice())?;
     let mut cache = LRUIndex::new(1000);
     let mut meta_keys : Vec<String> = corpus.get_meta().keys().cloned().collect();
@@ -617,6 +617,7 @@ pub fn read_tcf<R: std::io::BufRead, C: WriteableCorpus>(
     let mut meta_bytes = vec![0u8; 4];
     input.read_exact(meta_bytes.as_mut_slice())?;
     let len = u32::from_be_bytes([meta_bytes[0], meta_bytes[1], meta_bytes[2], meta_bytes[3]]) as usize;
+    eprintln!("len: {}", len);
     let mut meta_bytes = vec![0u8; len];
     input.read_exact(meta_bytes.as_mut_slice())?;
     let meta : HashMap<String, LayerDesc> = from_reader(meta_bytes.as_slice())?;
@@ -724,11 +725,14 @@ impl TCFData {
         }
     }
 
-    pub fn to_vec<I : Index>(&self, index : &I) -> Vec<String> {
+    pub fn to_vec<I : Index>(&self, index : &mut I) -> Vec<String> {
         match self {
             TCFData::String(v) => {
                 v.iter().map(|i| match i {
-                    IndexResult::String(s) => s.clone(),
+                    IndexResult::String(s) => {
+                        index.idx(s);
+                        s.clone()
+                    }
                     IndexResult::Index(i) => index.str(*i).unwrap()
                 }).collect()
             }
