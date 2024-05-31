@@ -2,7 +2,6 @@
 // Author: John P. McCrae
 // License: Apache 2.0
 use std::collections::HashMap;
-use std::fmt::{self, Display, Formatter};
 use sled;
 use ciborium::{from_reader, into_writer};
 use sha2::{Digest, Sha256};
@@ -12,18 +11,23 @@ use itertools::Itertools;
 use serde::{Serialize,Deserialize};
 use thiserror::Error;
 use std::fs::File;
-use serde::ser::SerializeSeq;
 
-pub mod serialization;
-pub mod layer_builder;
 pub mod disk_corpus;
+pub mod document;
+pub mod layer;
+pub mod layer_builder;
+pub mod serialization;
+pub mod match_condition;
 pub mod transaction_corpus;
 mod tcf;
 
+pub use document::{Document, DocumentContent};
 pub use disk_corpus::DiskCorpus;
 pub use transaction_corpus::TransactionCorpus;
+pub use layer::{IntoLayer, Layer, LayerDesc, DataType, LayerType, TeangaData};
 pub use layer_builder::build_layer;
 pub use tcf::{write_tcf_corpus, write_tcf, read_tcf, doc_content_to_bytes, bytes_to_doc, Index, IndexResult};
+pub use match_condition::{TextMatchCondition, DataMatchCondition};
 
 const DOCUMENT_PREFIX : u8 = 0x00;
 const META_PREFIX : u8 = 0x03;
@@ -40,7 +44,7 @@ pub trait Corpus {
     fn add_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, content : DC) -> TeangaResult<String>;
     fn update_doc<D : IntoLayer, DC: DocumentContent<D>>(&mut self, id : &str, content : DC) -> TeangaResult<String>;
     fn remove_doc(&mut self, id : &str) -> TeangaResult<()>;
-    fn get_doc_by_id(&self, id : &str) -> TeangaResult<Self::Content>;
+    fn get_doc_by_id(&self, id : &str) -> TeangaResult<Document>;
     fn get_docs(&self) -> Vec<String>;
     fn get_meta(&self) -> &HashMap<String, LayerDesc>;
     fn get_meta_mut(&mut self) -> &mut HashMap<String, LayerDesc>;
@@ -52,6 +56,35 @@ pub trait Corpus {
         }
         Ok(ids)
     }
+    fn text_freq<C: TextMatchCondition>(&self, layer : &str, condition : C) -> TeangaResult<HashMap<String, u32>> {
+        let mut freq = HashMap::new();
+        for doc_id in self.get_docs() {
+            let doc = self.get_doc_by_id(&doc_id)?;
+            if let Some(text) = doc.text(layer, self.get_meta()) {
+                for word in text {
+                    if condition.matches(word) {
+                        *freq.entry(word.to_string()).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+        Ok(freq)
+    }
+
+    fn val_freq<C: DataMatchCondition>(&self, layer : &str, condition : C) -> TeangaResult<HashMap<TeangaData, u32>> {
+        let mut freq = HashMap::new();
+        for doc_id in self.get_docs() {
+            let doc = self.get_doc_by_id(&doc_id)?;
+            if let Some(data) = doc.data(layer, self.get_meta()) {
+                for val in data {
+                    if condition.matches(&val) {
+                        *freq.entry(val).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+        Ok(freq)
+    } 
 }
 
 pub trait WriteableCorpus : Corpus {
@@ -59,54 +92,7 @@ pub trait WriteableCorpus : Corpus {
     fn set_order(&mut self, order : Vec<String>);
 }
 
-pub trait DocumentContent<D> : IntoIterator<Item=(String, D)> where D : IntoLayer {
-    fn keys(&self) -> Vec<String>;
-    fn as_map(self, meta : &HashMap<String, LayerDesc>) -> TeangaResult<HashMap<String, Layer>> where Self : Sized {
-        let mut map = HashMap::new();
-        for (k, v) in self.into_iter() {
-            if let Some(meta) = meta.get(&k) {
-                map.insert(k, v.into_layer(meta)?);
-            } else {
-                return Err(TeangaError::DocumentKeyError(k))
-            }
-        }
-        Ok(map)
-    }
-}
 
-impl<D: IntoLayer> DocumentContent<D> for HashMap<String, D> {
-    fn keys(&self) -> Vec<String> {
-        self.keys().cloned().collect()
-    }
-}
-
-impl<D: IntoLayer> DocumentContent<D> for Vec<(String, D)> {
-    fn keys(&self) -> Vec<String> {
-        self.iter().map(|(k, _)| k.clone()).collect()
-    }
-}
-
-pub trait IntoLayer {
-    fn into_layer(self, meta : &LayerDesc) -> TeangaResult<Layer>;
-}
-
-impl IntoLayer for Layer {
-    fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
-        Ok(self)
-    }
-}
-
-impl IntoLayer for String {
-    fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
-        Ok(Layer::Characters(self))
-    }
-}
-
-impl IntoLayer for &str {
-fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
-        Ok(Layer::Characters(self.to_string()))
-    }
-}
 #[derive(Debug, Clone)]
 /// An in-memory corpus object
 pub struct SimpleCorpus {
@@ -114,55 +100,6 @@ pub struct SimpleCorpus {
     pub order: Vec<String>,
     pub content: HashMap<String, Document>
 }
-
-#[derive(Debug,Clone,Serialize,Deserialize)]
-/// A layer description
-pub struct LayerDesc {
-    #[serde(rename = "type")]
-    pub layer_type: LayerType,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub base: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<DataType>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub link_types: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub target: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub default: Option<Layer>,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub meta: HashMap<String, Value>, 
-}
-
-impl LayerDesc {
-    pub fn new(name: &str, layer_type: LayerType, 
-        base: Option<String>, data: Option<DataType>, link_types: Option<Vec<String>>, 
-        target: Option<String>, default: Option<Layer>,
-        meta: HashMap<String, Value>) -> TeangaResult<LayerDesc> {
-        if layer_type == LayerType::characters && base != Some("".to_string()) && base != None {
-            return Err(TeangaError::ModelError(
-                    format!("Layer {} of type characters cannot be based on another layer", name)))
-        }
-
-        if layer_type != LayerType::characters && (base == Some("".to_string()) || base == None) {
-            return Err(TeangaError::ModelError(
-                format!("Layer {} of type {} must be based on another layer", name, layer_type)))
-        }
-
-        Ok(LayerDesc {
-            layer_type,
-            base,
-            data,
-            link_types,
-            target,
-            default,
-            meta
-         })
-    }
-}
-
-
 
 impl SimpleCorpus {
     pub fn new() -> SimpleCorpus {
@@ -311,48 +248,6 @@ fn open_db(path : &str) -> TeangaResult<sled::Db> {
     sled::open(path).map_err(|e| TeangaError::DBError(e))
 }
 
-#[derive(Debug,Clone,Serialize,Deserialize)]
-/// A document object
-pub struct Document {
-    pub content: HashMap<String, Layer>
-}
-
-impl Document {
-    pub fn new<D : IntoLayer, DC : DocumentContent<D>>(content : DC, meta: &HashMap<String, LayerDesc>) -> TeangaResult<Document> {
-       for key in content.keys() {
-            if !meta.contains_key(&key) {
-                return Err(TeangaError::ModelError(
-                    format!("Layer {} does not exist", key)))
-            }
-        }
-        let mut doc_content = HashMap::new();
-        for (k, v) in content {
-            let layer_meta = meta.get(&k).ok_or_else(|| TeangaError::ModelError(
-                format!("No meta information for layer {}", k)))?;
-            doc_content.insert(k, 
-                v.into_layer(layer_meta)?);
-        }
-        Ok(Document {
-            content: doc_content
-        })
-    }
-}
-
-impl IntoIterator for Document {
-    type Item = (String, Layer);
-    type IntoIter = std::collections::hash_map::IntoIter<String, Layer>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.content.into_iter()
-    }
-}
-
-impl DocumentContent<Layer> for Document {
-    fn keys(&self) -> Vec<String> {
-        self.content.keys().cloned().collect()
-    }
-}
-
 #[derive(Debug,Clone,PartialEq, Serialize,Deserialize)]
 /// Any valid JSON/YAML value
 pub enum Value {
@@ -362,20 +257,6 @@ pub enum Value {
     String(String),
     Array(Vec<Value>),
     Object(HashMap<String, Value>)
-}
-
-#[derive(Debug,Clone,PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum Layer {
-    Characters(String),
-    L1(Vec<u32>),
-    L2(Vec<(u32,u32)>),
-    L3(Vec<(u32,u32,u32)>),
-    LS(Vec<String>),
-    L1S(Vec<(u32,String)>),
-    L2S(Vec<(u32,u32,String)>),
-    L3S(Vec<(u32,u32,u32,String)>),
-    MetaLayer(Vec<HashMap<String, Value>>)
 }
 
 /// Generate a unique ID for a document
@@ -399,94 +280,6 @@ pub fn teanga_id(existing_keys : &Vec<String>, doc : &Document) -> String {
     }
     return code[..n].to_string();
 }
-
-#[allow(non_camel_case_types)]
-#[derive(Debug,Clone,PartialEq,Serialize,Deserialize)]
-pub enum LayerType {
-    characters,
-    seq,
-    div,
-    element,
-    span
-}
-
-impl Display for LayerType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            LayerType::characters => write!(f, "characters"),
-            LayerType::seq => write!(f, "seq"),
-            LayerType::div => write!(f, "div"),
-            LayerType::element => write!(f, "element"),
-            LayerType::span => write!(f, "span")
-        }
-    }
-}
-
-#[derive(Debug,Clone,PartialEq)]
-pub enum DataType {
-    String,
-    Enum(Vec<String>),
-    Link
-}
-
-impl Serialize for DataType {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
-        match self {
-            DataType::String => serializer.serialize_str("string"),
-            DataType::Enum(vals) => {
-                let mut seq = serializer.serialize_seq(Some(vals.len()))?;
-                for val in vals {
-                    seq.serialize_element(val)?;
-                }
-                seq.end()
-            },
-            DataType::Link => serializer.serialize_str("link")
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for DataType {
-    fn deserialize<D>(deserializer: D) -> Result<DataType, D::Error> where D: serde::Deserializer<'de> {
-        struct DataTypeVisitor;
-        impl<'de> serde::de::Visitor<'de> for DataTypeVisitor {
-            type Value = DataType;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a string or an array of strings")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<DataType, E> where E: serde::de::Error {
-                match value {
-                    "string" => Ok(DataType::String),
-                    "String" => Ok(DataType::String),
-                    "link" => Ok(DataType::Link),
-                    "Link" => Ok(DataType::Link),
-                    _ => Err(serde::de::Error::invalid_value(serde::de::Unexpected::Str(value), &self))
-                }
-            }
-
-            fn visit_seq<A>(self, mut seq: A) -> Result<DataType, A::Error> where A: serde::de::SeqAccess<'de> {
-                let mut vals = Vec::new();
-                while let Some(val) = seq.next_element()? {
-                    vals.push(val);
-                }
-                Ok(DataType::Enum(vals))
-            }
-        }
-        deserializer.deserialize_any(DataTypeVisitor)
-    }
-}
-
-impl Display for DataType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            DataType::String => write!(f, "string"),
-            DataType::Enum(vals) => write!(f, "enum({})", vals.iter().join(",")),
-            DataType::Link => write!(f, "link"),
-        }
-    }
-}
-
 pub fn read_corpus_from_json_string(s : &str, path : &str) -> Result<DiskCorpus, TeangaJsonError> {
     Ok(serialization::read_corpus_from_json_string(s, path)?)
 }
