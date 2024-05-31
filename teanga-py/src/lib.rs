@@ -240,7 +240,7 @@ impl IntoPy<PyObject> for PyRawLayer {
 }
 
 impl IntoLayer for PyRawLayer {
-    fn into_layer(self, meta: &LayerDesc) -> TeangaResult<Layer> {
+    fn into_layer(self, _meta: &LayerDesc) -> TeangaResult<Layer> {
         Ok(self.0)
     }
 }
@@ -631,7 +631,7 @@ fn read_corpus_from_json_file(json : &str, path: &str) -> PyResult<PyDiskCorpus>
 /// A Python module implemented in Rust.
 #[pymodule]
 #[pyo3(name="teanga")]
-fn teanga(_py: Python, m: &PyModule) -> PyResult<()> {
+fn teanga(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDiskCorpus>()?;
     m.add_class::<TCFPyCorpus>()?;
     m.add_function(wrap_pyfunction!(read_corpus_from_json_string, m)?)?;

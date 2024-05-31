@@ -524,7 +524,7 @@ pub fn bytes_to_doc<I : Index>(bytes : &[u8], offset : usize,
 }
 
 #[derive(Error, Debug)]
-enum ReadDocError {
+pub enum ReadDocError {
     #[error("Model error: {0}")]
     TeangaError(#[from] TeangaError),
     #[error("IO error: {0}")]

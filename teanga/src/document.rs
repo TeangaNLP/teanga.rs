@@ -6,6 +6,18 @@ use std::ops::Index;
 
 pub trait DocumentContent<D> : IntoIterator<Item=(String, D)> where D : IntoLayer {
     fn keys(&self) -> Vec<String>;
+    fn as_map(self, meta : &HashMap<String, LayerDesc>) -> TeangaResult<HashMap<String, Layer>> where Self : Sized {
+        let mut map = HashMap::new();
+        for (k, v) in self.into_iter() {
+            if let Some(meta) = meta.get(&k) {
+                map.insert(k, v.into_layer(meta)?);
+            } else {
+                return Err(TeangaError::DocumentKeyError(k))
+            }
+        }
+        Ok(map)
+    }
+
 }
 
 impl<D: IntoLayer> DocumentContent<D> for HashMap<String, D> {

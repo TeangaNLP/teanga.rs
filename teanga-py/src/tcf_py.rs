@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{PyLayerDesc, PyLayerType, PyValue, PyDataType, PyRawLayer};
 use pyo3::types::PyByteArray;
 use teanga::{LayerDesc, teanga_id, Document, Index, IndexResult, 
-    TeangaResult, TeangaError, bytes_to_doc, doc_content_to_bytes};
+    bytes_to_doc, doc_content_to_bytes};
 
 #[pyclass]
 pub struct TCFPyCorpus {
@@ -117,7 +117,7 @@ impl TCFPyCorpus {
         Err(PyErr::new::<pyo3::exceptions::PyAttributeError, _>("Order is read-only"))
     }
 
-    fn update_doc<'p>(&mut self, py : Python<'p>, id : &str, content: HashMap<String, PyRawLayer>) -> PyResult<String> {
+    fn update_doc<'p>(&mut self, _py : Python<'p>, _id : &str, _content: HashMap<String, PyRawLayer>) -> PyResult<String> {
         panic!("Updating documents not yet supported in TCF")
     }
 

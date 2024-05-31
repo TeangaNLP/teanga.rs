@@ -5,13 +5,7 @@ use flate2;
 use std::io::BufReader;
 
 // for CBOR conversion
-use ciborium::into_writer;
-use serde_json;
-use std::collections::HashMap;
 use std::io::BufWriter;
-use std::io::BufRead;
-use teanga::Layer;
-use teanga::{read_tcf, write_tcf, Document, SimpleCorpus};
 
 /// Command line arguments
 #[derive(Parser, Debug)]
