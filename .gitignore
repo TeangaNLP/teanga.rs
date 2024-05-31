@@ -171,3 +171,10 @@ teanga/test
 teanga-c4/c4-train.00000-of-01024.json.gz
 teanga-cli/c4-train.00000-of-01024.json.gz
 teanga-cli/c4.cbor
+teanga-cli/c4-header.json
+teanga-cli/c4-header.tcf
+teanga-cli/c4-header.yaml
+teanga-cli/c4-header.yaml2
+teanga-cli/c4.json
+teanga-cli/c4.json.gz
+teanga-cli/c4.tcf.gz

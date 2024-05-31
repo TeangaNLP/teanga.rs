@@ -58,9 +58,9 @@ impl Format {
                     Format::JSON
                 } else if file.ends_with(".jsonl") {
                     Format::JSONL
-                } else if file.ends_with(".yaml") || file.ends_with(".yml") {
+                } else if file.ends_with(".yaml") || file.ends_with(".yml") || file.ends_with(".yaml.gz") {
                     Format::YAML
-                } else if file.ends_with(".tcf") {
+                } else if file.ends_with(".tcf") || file.ends_with(".tcf.gz") {
                     Format::TCF
                 } else {
                     Format::YAML
