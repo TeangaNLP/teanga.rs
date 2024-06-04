@@ -26,7 +26,7 @@ pub use disk_corpus::DiskCorpus;
 pub use transaction_corpus::TransactionCorpus;
 pub use layer::{IntoLayer, Layer, LayerDesc, DataType, LayerType, TeangaData};
 pub use layer_builder::build_layer;
-pub use tcf::{write_tcf_corpus, write_tcf, read_tcf, doc_content_to_bytes, bytes_to_doc, Index, IndexResult};
+pub use tcf::{write_tcf, read_tcf, doc_content_to_bytes, bytes_to_doc, Index, IndexResult};
 pub use match_condition::{TextMatchCondition, DataMatchCondition};
 
 const DOCUMENT_PREFIX : u8 = 0x00;
@@ -93,7 +93,7 @@ pub trait WriteableCorpus : Corpus {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 /// An in-memory corpus object
 pub struct SimpleCorpus {
     pub meta: HashMap<String, LayerDesc>,

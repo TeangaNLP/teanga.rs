@@ -31,7 +31,109 @@ fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
     }
 }
 
-#[derive(Debug,Clone,Serialize,Deserialize)]
+impl IntoLayer for Vec<u32> {
+    fn into_layer(self, meta : &LayerDesc) -> TeangaResult<Layer> {
+        if meta.layer_type == LayerType::seq {
+            Ok(Layer::L1(self))
+        } else if meta.layer_type == LayerType::div {
+            Ok(Layer::L1(self))
+        } else if meta.layer_type == LayerType::element {
+            Ok(Layer::L1(self))
+        } else {
+            Err(TeangaError::ModelError(
+                format!("Layer type L1 not supported for layer type {}", meta.layer_type)))
+        }
+    }
+}
+
+impl IntoLayer for Vec<(u32, u32)> {
+    fn into_layer(self, meta : &LayerDesc) -> TeangaResult<Layer> {
+        if meta.layer_type == LayerType::div {
+            Ok(Layer::L2(self))
+        } else if meta.layer_type == LayerType::element {
+            Ok(Layer::L2(self))
+        } else if meta.layer_type == LayerType::span {
+            Ok(Layer::L2(self))
+        } else {
+            Err(TeangaError::ModelError(
+                format!("Layer type L2 not supported for layer type {}", meta.layer_type)))
+        }
+    }
+}
+
+impl IntoLayer for Vec<(u32, u32, u32)> {
+    fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
+        Ok(Layer::L3(self))
+    }
+}
+
+impl IntoLayer for Vec<String> {
+    fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
+        Ok(Layer::LS(self))
+    }
+}
+
+impl IntoLayer for Vec<&'static str> {
+    fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
+        Ok(Layer::LS(self.iter().map(|s| s.to_string()).collect()))
+    }
+}
+
+impl IntoLayer for Vec<(u32, String)> {
+    fn into_layer(self, meta : &LayerDesc) -> TeangaResult<Layer> {
+        if meta.layer_type == LayerType::div {
+            Ok(Layer::L1S(self))
+        } else if meta.layer_type == LayerType::element {
+            Ok(Layer::L1S(self))
+        } else if meta.layer_type == LayerType::seq {
+            Ok(Layer::L1S(self))
+        } else {
+            Err(TeangaError::ModelError(
+                format!("Layer type L1S not supported for layer type {}", meta.layer_type)))
+        }
+    }
+}
+
+impl IntoLayer for Vec<(u32, &'static str)> {
+    fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
+        Ok(Layer::L1S(self.iter().map(|(i, s)| (*i, s.to_string())).collect()))
+    }
+}
+
+impl IntoLayer for Vec<(u32, u32, String)> {
+    fn into_layer(self, meta : &LayerDesc) -> TeangaResult<Layer> {
+        if meta.layer_type == LayerType::div {
+            Ok(Layer::L2S(self))
+        } else if meta.layer_type == LayerType::element {
+            Ok(Layer::L2S(self))
+        } else if meta.layer_type == LayerType::span {
+            Ok(Layer::L2S(self))
+        } else {
+            Err(TeangaError::ModelError(
+                format!("Layer type L2S not supported for layer type {}", meta.layer_type)))
+        }
+    }
+}
+
+impl IntoLayer for Vec<(u32, u32, &'static str)> {
+    fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
+        Ok(Layer::L2S(self.iter().map(|(i, j, s)| (*i, *j, s.to_string())).collect()))
+    }
+}
+
+impl IntoLayer for Vec<(u32, u32, u32, String)> {
+    fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
+        Ok(Layer::L3S(self))
+    }
+}
+
+impl IntoLayer for Vec<(u32, u32, u32, &'static str)> {
+    fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
+        Ok(Layer::L3S(self.iter().map(|(i, j, k, s)| (*i, *j, *k, s.to_string())).collect()))
+    }
+}
+
+#[derive(Debug,Clone,Serialize,Deserialize,Default,PartialEq)]
 /// A layer description
 pub struct LayerDesc {
     #[serde(rename = "type")]
@@ -248,6 +350,12 @@ impl Display for LayerType {
             LayerType::element => write!(f, "element"),
             LayerType::span => write!(f, "span")
         }
+    }
+}
+
+impl Default for LayerType {
+    fn default() -> Self {
+        LayerType::characters
     }
 }
 

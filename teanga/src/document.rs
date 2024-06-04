@@ -32,7 +32,7 @@ impl<D: IntoLayer> DocumentContent<D> for Vec<(String, D)> {
     }
 }
 
-#[derive(Debug,Clone,Serialize,Deserialize)]
+#[derive(Debug,Clone,PartialEq,Serialize,Deserialize)]
 /// A document object
 pub struct Document {
     pub content: HashMap<String, Layer>
@@ -126,6 +126,18 @@ impl Document {
     pub fn keys(&self) -> Vec<String> {
         self.content.keys().cloned().collect()
     }
+
+    pub fn get(&self, key: &str) -> Option<&Layer> {
+        self.content.get(key)
+    }
+
+    pub fn get_mut(&mut self, key: &str) -> Option<&mut Layer> {
+        self.content.get_mut(key)
+    }
+
+    pub fn set(&mut self, key: &str, value: Layer) {
+        self.content.insert(key.to_string(), value);
+    }
 }
 
 impl IntoIterator for Document {
@@ -144,7 +156,6 @@ impl Index<&str> for Document {
         &self.content[key]
     }
 }
-
 
 impl DocumentContent<Layer> for Document {
     fn keys(&self) -> Vec<String> {

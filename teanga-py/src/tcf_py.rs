@@ -60,9 +60,10 @@ impl TCFPyCorpus {
         let document = Document::new(doc.clone(), &self.meta).
             map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?;
         let id = teanga_id(&self.order, &document);
+        let mut index = self.index.to_index();
         let data = doc_content_to_bytes(doc,
             &self.meta_keys,
-            &self.meta, &mut self.index)
+            &self.meta, &mut index)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?;
         self.order.push(id.clone());
         let d = self.data.bind(py);
@@ -71,6 +72,7 @@ impl TCFPyCorpus {
         unsafe {
             d.as_bytes_mut()[n..].copy_from_slice(&data);
         }
+        self.index = TCFPyIndex::from_index(index);
         Ok(())
     }
 
@@ -82,14 +84,16 @@ impl TCFPyCorpus {
     }   
 
     pub fn get_doc_by_id<'p>(&mut self, py : Python<'p>, id : &str) -> PyResult<HashMap<String, PyRawLayer>> {
+        let mut index = self.index.to_index();
         if let Some(i) = self.offsets.get(id) {
             let data = self.data.bind(py);
             // TODO: Index should be initialized already!
             let doc = unsafe {
                 bytes_to_doc(data.as_bytes(), *i,
-                    &self.meta_keys, &self.meta, &mut self.index)
+                    &self.meta_keys, &self.meta, &mut index)
                     .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?
             };
+            self.index = TCFPyIndex::from_index(index);
             Ok(doc.content.iter().map(|(k, v)| (k.clone(), PyRawLayer(v.clone()))).collect())
         } else {
             Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
@@ -126,36 +130,31 @@ impl TCFPyCorpus {
 
 #[pyclass]
 pub struct TCFPyIndex {
-    pub keys : HashMap<String, usize>,
-    pub key_strs : Vec<String>
+    pub keys : HashMap<String, u32>,
+    pub key_strs : Vec<String>,
+    pub lru : Vec<String>
 }
 
 impl TCFPyIndex {
     pub fn new() -> TCFPyIndex {
         TCFPyIndex {
             keys: HashMap::new(),
-            key_strs: Vec::new()
+            key_strs: Vec::new(),
+            lru : Vec::new()
+        }
+    }
+
+    pub fn to_index(&self) -> Index {
+        Index::from_values(self.keys.clone(), self.key_strs.clone(),
+            self.lru.clone())
+    }
+
+    pub fn from_index(index : Index) -> TCFPyIndex {
+        let (keys, key_strs, lru) = index.into_values();
+        TCFPyIndex {
+            keys,
+            key_strs,
+            lru
         }
     }
 }
-
-impl Index for TCFPyIndex {
-    fn idx(&mut self, str : &String) -> IndexResult {
-        if self.keys.contains_key(str) {
-            IndexResult::Index(*self.keys.get(str).unwrap() as u32)
-        } else {
-            let n = self.keys.len();
-            self.key_strs.push(str.clone());
-            self.keys.insert(str.clone(), n);
-            IndexResult::Index(n as u32)
-        }
-    }
-    fn str(&self, idx : u32) -> Option<String> {
-        if idx < self.key_strs.len() as u32 {
-            Some(self.key_strs[idx as usize].clone())
-        } else {
-            None
-        }
-    }
-}
-
