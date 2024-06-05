@@ -27,6 +27,7 @@ pub enum IndexResult {
     String(String)
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct TypeIndex(Vec<u8>, usize);
 
 impl TypeIndex {
@@ -875,6 +876,9 @@ impl TCFIndex {
         d.push(self.precision);
         d.extend((self.length as u32).to_be_bytes().iter());
         d.extend(self.data.iter());
+        let n_bits = self.length * self.precision as usize;
+        let n_bytes = (n_bits + 7) / 8;
+        assert_eq!(d.len(), 5 + n_bytes);
         d
     }
 
@@ -970,18 +974,18 @@ fn u32_to_varbytes(n : u32) -> Vec<u8> {
     } else if n < 2097152 {
         vec![bytes[1] << 2 | bytes[2] >> 6 | 0b1000_0000,
             bytes[2] << 1 | bytes[3] >> 7 | 0b1000_0000,
-            bytes[3] | 0b1000_0000]
+            bytes[3] & 0b0111_1111]
     } else if n < 268435456 {
         vec![bytes[0] << 3 | bytes[1] >> 5 | 0b1000_0000,
             bytes[1] << 2 | bytes[2] >> 6 | 0b1000_0000,
             bytes[2] << 1 | bytes[3] >> 7 | 0b1000_0000,
-            bytes[3] | 0b1000_0000]
+            bytes[3] & 0b0111_1111]
     } else {
         vec![bytes[0] | 0b1000_0000 >> 4,
             bytes[0] << 3 | bytes[1] >> 5 | 0b1000_0000,
             bytes[1] << 2 | bytes[2] >> 6 | 0b1000_0000,
             bytes[2] << 1 | bytes[3] >> 7 | 0b1000_0000,
-            bytes[3] | 0b1000_0000]
+            bytes[3] & 0b0111_1111]
     }
 }
 
@@ -1258,4 +1262,26 @@ mod tests {
         assert_eq!(corpus.content, corpus2.content);
         //assert_eq!(corpus, corpus2);
      }
+
+    #[test]
+    fn test_type_index() {
+        let mut type_index = TypeIndex::new();
+        let values = vec![false, true, true, false, false, false, true,
+            false, true, true, true, false, false];
+        for v in values.iter() {
+            type_index.append(*v);
+        }
+        for i in 0..values.len() {
+            assert_eq!(type_index.value(i), values[i]);
+        }
+    }
+
+    #[test]
+    fn test_var_bytes2() {
+        let i = 16384;
+        let bytes = u32_to_varbytes(i);
+        println!("{:?}", bytes);
+        let i2 = read_varbytes(&mut bytes.as_slice()).unwrap();
+        assert_eq!(i, i2);
+    }
 }

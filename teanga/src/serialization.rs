@@ -84,7 +84,6 @@ fn corpus_serialize<C : Corpus, S>(c : &C, serializer: S) -> Result<S::Ok, S::Er
     let mut map = serializer.serialize_map(Some(3))?;
     map.serialize_entry("_meta", c.get_meta())?;
     for id in c.get_order() {
-        eprintln!("Serializing {}", id);
         map.serialize_entry(id, &c.get_doc_by_id(id).map_err(serde::ser::Error::custom)?)?;
     }
     map.end()
