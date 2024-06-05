@@ -26,7 +26,7 @@ pub use disk_corpus::DiskCorpus;
 pub use transaction_corpus::TransactionCorpus;
 pub use layer::{IntoLayer, Layer, LayerDesc, DataType, LayerType, TeangaData};
 pub use layer_builder::build_layer;
-pub use tcf::{write_tcf, read_tcf, doc_content_to_bytes, bytes_to_doc, Index, IndexResult};
+pub use tcf::{write_tcf, read_tcf, write_tcf_header, write_tcf_doc, doc_content_to_bytes, bytes_to_doc, Index, IndexResult};
 pub use match_condition::{TextMatchCondition, DataMatchCondition};
 
 const DOCUMENT_PREFIX : u8 = 0x00;
@@ -85,6 +85,9 @@ pub trait Corpus {
         }
         Ok(freq)
     } 
+    fn iter_docs<'a>(&'a self) -> Box<dyn Iterator<Item=TeangaResult<Document>> + 'a> {
+        Box::new(self.get_docs().into_iter().map(move |x| self.get_doc_by_id(&x)))
+    }
 }
 
 pub trait WriteableCorpus : Corpus {

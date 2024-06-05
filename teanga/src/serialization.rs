@@ -1,6 +1,6 @@
 // Serialization support for Teanga DB
 // -----------------------------------------------------------------------------
-use crate::{Corpus, DiskCorpus, WriteableCorpus, LayerDesc, Layer, TransactionCorpus, TeangaJsonError};
+use crate::{Corpus, DiskCorpus, WriteableCorpus, LayerDesc, Layer, TransactionCorpus, TeangaJsonError, Document};
 use itertools::Itertools;
 use serde::Deserializer;
 use serde::Serialize;
@@ -160,6 +160,12 @@ pub fn read_jsonl<'de, R: BufRead, C : WriteableCorpus>(reader: R, corpus : &mut
         corpus.add_doc(doc)?;
     }
     Ok(())
+}
+
+pub fn read_jsonl_line<'de, C : WriteableCorpus>(line: String,
+    corpus : &mut C) -> Result<Document, TeangaJsonError> {
+        let doc : HashMap<String, Layer> = serde_json::from_str(&line)?;
+        Ok(Document::new(doc, corpus.get_meta())?)
 }
 
 pub fn write_json<W : Write, C : Corpus>(mut writer : W, corpus : &C) -> Result<(), serde_json::Error> 

@@ -2,7 +2,7 @@ use clap::{Parser, ValueEnum};
 use teanga::TransactionCorpus;
 use std::fs::File;
 use flate2;
-use std::io::BufReader;
+use std::io::{BufReader, BufRead};
 
 // for CBOR conversion
 use std::io::BufWriter;
@@ -40,7 +40,7 @@ struct LoadCommand {
     jsonl: bool
 }
 
-#[derive(ValueEnum, Debug, Clone)]
+#[derive(ValueEnum, Debug, Clone, PartialEq, Eq)]
 #[clap(rename_all = "lowercase")]
 enum Format {
     JSON,
@@ -163,6 +163,8 @@ impl ConvertCommand {
             None => {}
         }
 
+        let mut progressive = false;
+
         match self.input_format.guess(&self.input) {
             Format::JSON => {
                 teanga::serialization::read_json(&mut input, &mut corpus, false)
@@ -172,8 +174,12 @@ impl ConvertCommand {
                 if self.meta_file.is_none() {
                     return Err("Meta file is required for JSONL".to_string());
                 }
-                teanga::serialization::read_jsonl(&mut input, &mut corpus)
-                    .map_err(|e| format!("Failed to read JSONL: {}", e))?;
+                if self.output_format.guess(&self.output) == Format::TCF {
+                    progressive = true;
+                } else {
+                    teanga::serialization::read_jsonl(&mut input, &mut corpus)
+                        .map_err(|e| format!("Failed to read JSONL: {}", e))?;
+                }
             }
             Format::YAML => {
                 teanga::serialization::read_yaml(&mut input, &mut corpus, false)
@@ -199,8 +205,19 @@ impl ConvertCommand {
                     .map_err(|e| format!("Failed to write YAML: {}", e))?;
             }
             Format::TCF => {
-                teanga::write_tcf(&mut output, &corpus)
-                    .map_err(|e| format!("Failed to write TCF: {}", e))?;
+                if progressive {
+                    let (mut cache, keys) = teanga::write_tcf_header(&mut output, &corpus)
+                        .map_err(|e| format!("Failed to write TCF: {}", e))?;
+                    for line in input.lines() {
+                        let line = line.map_err(|e| format!("Failed to read line: {}", e))?;
+                        let doc = teanga::serialization::read_jsonl_line(line, &mut corpus).map_err(|e| format!("Failed to parse JSON: {}", e))?;
+                        teanga::write_tcf_doc(&mut output, doc, &mut cache, &keys, &corpus)
+                            .map_err(|e| format!("Failed to write TCF: {}", e))?;
+                    }
+                } else {
+                    teanga::write_tcf(&mut output, &corpus)
+                        .map_err(|e| format!("Failed to write TCF: {}", e))?;
+                }
             }
             Format::Guess => panic!("unreachable")
         }

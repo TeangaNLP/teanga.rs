@@ -1,18 +1,10 @@
 _meta:
   text:
     type: characters
-  document:
-    type: div
-    base: characters
-    default: [0]
   url:
-    type: seq
-    base: document
-    data: string
+    type: characters
   timestamp:
-    type: seq
-    base: document
-    data: string
+    type: characters
   words:
     type: span
     base: characters
