@@ -179,13 +179,19 @@ impl Corpus for SimpleCorpus {
     ///
     /// The new ID of the document (if no text layers are changed this will be the same as input)
     fn update_doc<D : IntoLayer, DC: DocumentContent<D>>(&mut self, id : &str, content : DC) -> TeangaResult<String> {
-        let mut doc = self.get_doc_by_id(id)?;
-        for (key, layer) in content {
-            let layer_desc = self.meta.get(&key).ok_or_else(|| TeangaError::ModelError(
-                format!("Layer {} does not exist", key)))?;
-            doc.set(&key, layer.into_layer(layer_desc)?);
-        }
-        let new_id = teanga_id(&self.order, &doc);
+        let doc = match self.get_doc_by_id(id) {
+            Ok(mut doc) => {
+                for (key, layer) in content {
+                    let layer_desc = self.meta.get(&key).ok_or_else(|| TeangaError::ModelError(
+                        format!("Layer {} does not exist", key)))?;
+                    doc.set(&key, layer.into_layer(layer_desc)?);
+                }
+                doc
+            },
+            Err(TeangaError::DocumentNotFoundError) => Document::new(content, &self.meta)?,
+            Err(e) => return Err(e)
+        };
+        let new_id = teanga_id_update(id, &self.order, &doc);
         if id != new_id {
             let n = self.order.iter().position(|x| x == id).ok_or_else(|| TeangaError::ModelError(
                 format!("Cannot find document in order vector: {}", id)))?;
@@ -210,8 +216,7 @@ impl Corpus for SimpleCorpus {
             Some(doc) => {
                 Ok(doc.clone())
             },
-            None => Err(TeangaError::ModelError(
-                format!("Document not found")))
+            None => Err(TeangaError::DocumentNotFoundError)
         }
     }
 
@@ -288,6 +293,30 @@ pub fn teanga_id(existing_keys : &Vec<String>, doc : &Document) -> String {
     }
     return code[..n].to_string();
 }
+
+pub fn teanga_id_update(prev_val : &str, existing_keys: &Vec<String>, doc : &Document) -> String {
+    let mut hasher = Sha256::new();
+    for key in doc.content.keys().sorted() {
+        match doc.content.get(key).unwrap() {
+            Layer::Characters(val) => {
+                hasher.update(key.as_bytes());
+                hasher.update(vec![0u8]);
+                hasher.update(val.as_bytes());
+                hasher.update(vec![0u8]);
+            }
+            _ => ()
+        }
+    }
+    let code = STANDARD.encode(hasher.finalize().as_slice());
+    let mut n = 4;
+    while *prev_val != code[..n] && existing_keys.contains(&code[..n].to_string()) && n < code.len() {
+        n += 1;
+    }
+    return code[..n].to_string();
+}
+
+
+
 pub fn read_corpus_from_json_string(s : &str, path : &str) -> Result<DiskCorpus, TeangaJsonError> {
     Ok(serialization::read_corpus_from_json_string(s, path)?)
 }
@@ -346,7 +375,9 @@ pub enum TeangaError {
     #[error("TCF Read Error: {0}")]
     TCFReadError(#[from] crate::tcf::TCFError),
     #[error("Document key {0} not in meta")]
-    DocumentKeyError(String)
+    DocumentKeyError(String),
+    #[error("Document not found")]
+    DocumentNotFoundError
 }
 
 pub type TeangaResult<T> = Result<T, TeangaError>;
@@ -410,4 +441,20 @@ mod test {
         let layer4 : Layer = serde_json::from_str("[0]").unwrap();
         assert_eq!(layer3, layer4);
     }
+
+    #[test]
+    fn test_update_doc() {
+        let mut corpus = SimpleCorpus::new();
+        corpus.add_layer_meta("text".to_string(), LayerType::characters, None, None, None, None, None, HashMap::new()).unwrap();
+        corpus.add_layer_meta("words".to_string(), LayerType::span, Some("text".to_string()), None, None, None, None, HashMap::new()).unwrap();
+        corpus.add_layer_meta("pos".to_string(), LayerType::seq, Some("words".to_string()), None, None, None, None, HashMap::new()).unwrap();
+        let id = corpus.add_doc(vec![("text".to_string(), "test")]).unwrap();
+        corpus.update_doc(&id, vec![("words".to_string(), vec![(0,1)])]).unwrap();
+        corpus.update_doc(&id, vec![("pos".to_string(), vec!["N"])]).unwrap();
+        let doc = corpus.get_doc_by_id(&id).unwrap();
+        assert!(doc.get("words").is_some());
+        assert!(doc.get("pos").is_some());
+
+    }
+
 }

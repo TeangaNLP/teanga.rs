@@ -43,10 +43,10 @@ impl PyDiskCorpus {
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?)
     }
 
-    pub fn add_doc(&mut self, doc: HashMap<String, PyRawLayer>) -> PyResult<()> {
-        self.0.add_doc(doc.iter().map(|(k,v)| (k.clone(), v.0.clone())).collect::<HashMap<String, Layer>>())
+    pub fn add_doc(&mut self, doc: HashMap<String, PyRawLayer>) -> PyResult<String> {
+        let id = self.0.add_doc(doc.iter().map(|(k,v)| (k.clone(), v.0.clone())).collect::<HashMap<String, Layer>>())
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?;
-        Ok(())
+        Ok(id)
     }
 
     pub fn add_docs(&mut self, docs: Vec<HashMap<String, PyRawLayer>>) -> PyResult<()> {

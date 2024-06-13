@@ -35,6 +35,7 @@ impl<D: IntoLayer> DocumentContent<D> for Vec<(String, D)> {
 #[derive(Debug,Clone,PartialEq,Serialize,Deserialize)]
 /// A document object
 pub struct Document {
+    #[serde(flatten)]
     pub content: HashMap<String, Layer>
 }
 
@@ -162,4 +163,3 @@ impl DocumentContent<Layer> for Document {
         self.content.keys().cloned().collect()
     }
 }
-

@@ -159,30 +159,51 @@ def test_elem_layer():
     assert (doc.is_noun.indexes("words") == [(3, 4)])
     assert (doc.is_noun.indexes("text") == [(10, 18)])
 
-def test_text_freq():
-    corpus = Corpus()
+def test_update_docs():
+    corpus = Corpus(db="tmp.db", new=True)
     corpus.add_layer_meta("text")
-    corpus.add_layer_meta("words", layer_type="span", base="text")
-    doc = corpus.add_doc("This is a document.")
-    doc.words = [(0, 4), (5, 7), (8, 9), (10, 18)]
-    assert (corpus.text_freq("words") == 
-            Counter({'This': 1, 'is': 1, 'a': 1, 'document': 1}))
-    assert (corpus.text_freq("words", lambda x: "i" in x) == 
-            Counter({'This': 1, 'is': 1}))
- 
-def test_val_freq():
-    corpus = Corpus()
-    corpus.add_layer_meta("text")
-    corpus.add_layer_meta("words", layer_type="span", base="text")
-    corpus.add_layer_meta("pos", layer_type="seq", base="words",
-                           data=["NOUN", "VERB", "ADJ"])
-    doc = corpus.add_doc("Colorless green ideas sleep furiously.")
-    doc.words = [(0, 9), (10, 15), (16, 21), (22, 28), (29, 37)]
-    doc.pos = ["ADJ", "ADJ", "NOUN", "VERB", "ADV"]
-    assert (corpus.val_freq("pos") ==
-        Counter({'ADJ': 2, 'NOUN': 1, 'VERB': 1, 'ADV': 1}))
-    assert (corpus.val_freq("pos", ["NOUN", "VERB"]) ==
-        Counter({'NOUN': 1, 'VERB': 1}))
-    assert (corpus.val_freq("pos", lambda x: x[0] == "A") ==
-        Counter({'ADJ': 2, 'ADV': 1}))
+    corpus.add_layer_meta("author")
+
+    doc = corpus.add_doc(text="This is a document.")
+    doc.author = "John Doe"
+
+    assert(doc.text.text[0] == "This is a document.")
+    assert(doc.author.text[0] == "John Doe")
+
+def test_read_yaml_str2():
+    corpus = read_yaml_str("_meta:\n  text:\n    type: characters\n"
+    "  author:\n    type: characters\nwiDv:\n   text: This is a document.\n"
+    "   author: John Doe\n", "tmp.db")
+
+    for _, doc in corpus.docs:
+        assert(doc.text.text[0] == "This is a document.")
+        assert(doc.author.text[0] == "John Doe")
+
+# Awaiting merger of PR in teanga2
+#def test_text_freq():
+#    corpus = Corpus()
+#    corpus.add_layer_meta("text")
+#    corpus.add_layer_meta("words", layer_type="span", base="text")
+#    doc = corpus.add_doc("This is a document.")
+#    doc.words = [(0, 4), (5, 7), (8, 9), (10, 18)]
+#    assert (corpus.text_freq("words") == 
+#            Counter({'This': 1, 'is': 1, 'a': 1, 'document': 1}))
+#    assert (corpus.text_freq("words", lambda x: "i" in x) == 
+#            Counter({'This': 1, 'is': 1}))
+# 
+#def test_val_freq():
+#    corpus = Corpus()
+#    corpus.add_layer_meta("text")
+#    corpus.add_layer_meta("words", layer_type="span", base="text")
+#    corpus.add_layer_meta("pos", layer_type="seq", base="words",
+#                           data=["NOUN", "VERB", "ADJ"])
+#    doc = corpus.add_doc("Colorless green ideas sleep furiously.")
+#    doc.words = [(0, 9), (10, 15), (16, 21), (22, 28), (29, 37)]
+#    doc.pos = ["ADJ", "ADJ", "NOUN", "VERB", "ADV"]
+#    assert (corpus.val_freq("pos") ==
+#        Counter({'ADJ': 2, 'NOUN': 1, 'VERB': 1, 'ADV': 1}))
+#    assert (corpus.val_freq("pos", ["NOUN", "VERB"]) ==
+#        Counter({'NOUN': 1, 'VERB': 1}))
+#    assert (corpus.val_freq("pos", lambda x: x[0] == "A") ==
+#        Counter({'ADJ': 2, 'ADV': 1}))
  

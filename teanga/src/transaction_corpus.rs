@@ -163,13 +163,19 @@ impl Corpus for TransactionCorpus {
     ///
     /// The new ID of the document (if no text layers are changed this will be the same as input)
     fn update_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, id : &str, content : DC) -> TeangaResult<String> {
-        let mut doc = self.get_doc_by_id(id)?;
-        for (key, layer) in content {
-            let layer_desc = self.meta.get(&key).ok_or_else(|| TeangaError::ModelError(
-                format!("Layer {} does not exist", key)))?;
-            doc.set(&key, layer.into_layer(layer_desc)?);
-        }
-        let new_id = teanga_id(&self.order, &doc);
+        let doc = match self.get_doc_by_id(id) {
+            Ok(mut doc) => {
+                for (key, layer) in content {
+                    let layer_desc = self.meta.get(&key).ok_or_else(|| TeangaError::ModelError(
+                        format!("Layer {} does not exist", key)))?;
+                    doc.set(&key, layer.into_layer(layer_desc)?);
+                }
+                doc
+            },
+            Err(TeangaError::DocumentNotFoundError) => Document::new(content, &self.meta)?,
+            Err(e) => return Err(e)
+        };
+        let new_id = teanga_id_update(id, &self.order, &doc);
         if id != new_id {
         
             let n = self.order.iter().position(|x| x == id).ok_or_else(|| TeangaError::ModelError(
@@ -224,8 +230,7 @@ impl Corpus for TransactionCorpus {
         id_bytes.extend(id.as_bytes());
         let data = self.db.get(id_bytes)
             .map_err(|e| TeangaError::DBError(e))?
-            .ok_or_else(|| TeangaError::ModelError(
-                format!("Document not found")))?;
+            .ok_or_else(|| TeangaError::DocumentNotFoundError)?;
         let doc = from_bytes::<Document>(data.as_ref())?;
         let mut result = HashMap::new();
         for (key, layer) in doc.content {
