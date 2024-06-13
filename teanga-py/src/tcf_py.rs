@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 use std::collections::HashMap;
 use crate::{PyLayerDesc, PyLayerType, PyValue, PyDataType, PyRawLayer};
 use pyo3::types::PyByteArray;
-use teanga::{LayerDesc, teanga_id, Document, Index, IndexResult, 
+use teanga::{LayerDesc, teanga_id, Document, Index, 
     bytes_to_doc, doc_content_to_bytes};
 
 #[pyclass]
