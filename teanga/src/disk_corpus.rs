@@ -163,7 +163,12 @@ impl Corpus for DiskCorpus {
     ///
     /// The new ID of the document (if no text layers are changed this will be the same as input)
     fn update_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, id : &str, content : DC) -> TeangaResult<String> {
-        let doc = Document::new(content, &self.meta)?;
+        let mut doc = self.get_doc_by_id(id)?;
+        for (key, layer) in content {
+            let layer_desc = self.meta.get(&key).ok_or_else(|| TeangaError::ModelError(
+                format!("Layer {} does not exist", key)))?;
+            doc.set(&key, layer.into_layer(layer_desc)?);
+        }
         let new_id = teanga_id(&self.order, &doc);
         let db = open_db(&self.path)?;
         if id != new_id {

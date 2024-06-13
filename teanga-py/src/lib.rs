@@ -645,6 +645,7 @@ fn teanga(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read_corpus_from_yaml_string, m)?)?;
     m.add_function(wrap_pyfunction!(read_corpus_from_json_file, m)?)?;
     m.add_function(wrap_pyfunction!(read_corpus_from_yaml_file, m)?)?;
+    m.add_function(wrap_pyfunction!(read_corpus_from_yaml_url, m)?)?;
     m.add_function(wrap_pyfunction!(write_corpus_to_yaml, m)?)?;
     m.add_function(wrap_pyfunction!(write_corpus_to_yaml_string, m)?)?;
     m.add_function(wrap_pyfunction!(write_corpus_to_json, m)?)?;
