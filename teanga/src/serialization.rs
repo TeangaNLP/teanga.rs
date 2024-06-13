@@ -14,6 +14,8 @@ use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 use thiserror::Error;
+use reqwest;
+use flate2;
 
 //struct TeangaVisitor(String);
 //
@@ -220,6 +222,20 @@ pub fn read_corpus_from_yaml_file<P: AsRef<Path>>(yaml_file : P, path: &str) -> 
     Ok(corpus.commit()?)
 }
 
+pub fn read_corpus_from_yaml_url(url: &str, path: &str) -> Result<DiskCorpus, SerializeError> {
+    let response = reqwest::blocking::get(url)?;
+    let mut corpus = TransactionCorpus::new(path)?;
+    if url.ends_with(".gz") {
+        let mut decompressor = flate2::read::GzDecoder::new(response);
+        let deserializer = serde_yaml::Deserializer::from_reader(&mut decompressor);
+        deserializer.deserialize_any(TeangaVisitor2(&mut corpus, false))?;
+    } else {
+        let deserializer = serde_yaml::Deserializer::from_reader(response);
+        deserializer.deserialize_any(TeangaVisitor2(&mut corpus, false))?;
+    }
+    Ok(corpus.commit()?)
+}
+
 pub fn write_corpus_to_json<P: AsRef<Path>, C : Corpus>(corpus: &C, path: P) -> Result<(), serde_json::Error> 
     where C::Content : Serialize {
     let mut file = File::create(path)
@@ -255,6 +271,10 @@ pub enum SerializeError {
     Fmt(#[from] std::fmt::Error),
     #[error("UTF8 error: {0}")]
     Utf8(#[from] std::string::FromUtf8Error),
+    #[error("Reqwest error: {0}")]
+    Reqwest(#[from] reqwest::Error),
+    //#[error("Flate2 error: {0}")]
+    //Flate2(#[from] flate2::Error),
 }
 
 #[cfg(test)]

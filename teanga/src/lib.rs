@@ -295,6 +295,10 @@ pub fn read_corpus_from_yaml_file(yaml : &str, path: &str) -> Result<DiskCorpus,
     Ok(serialization::read_corpus_from_yaml_file(yaml, path)?)
 }
 
+pub fn read_corpus_from_yaml_url(url : &str, path: &str) -> Result<DiskCorpus, TeangaYamlError> {
+    Ok(serialization::read_corpus_from_yaml_url(url, path)?)
+}
+
 pub fn write_corpus_to_yaml(corpus : &DiskCorpus, path : &str) -> Result<(), TeangaYamlError> {
     let f = File::create(path)?;
     Ok(serialization::pretty_yaml_serialize(corpus, f)?)

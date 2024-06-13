@@ -598,6 +598,13 @@ fn read_corpus_from_yaml_file(yaml : &str, path: &str) -> PyResult<PyDiskCorpus>
 }
 
 #[pyfunction]
+fn read_corpus_from_yaml_url(url : &str, path : &str) -> PyResult<PyDiskCorpus> {
+    ::teanga::read_corpus_from_yaml_url(url, path).map_err(|e|
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))
+        .map(|x| PyDiskCorpus(x))
+}
+
+#[pyfunction]
 fn write_corpus_to_yaml(corpus : &PyDiskCorpus, path : &str) -> PyResult<()> {
     ::teanga::write_corpus_to_yaml(&corpus.0, path).map_err(|e|
         PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))
