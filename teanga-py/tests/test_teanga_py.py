@@ -162,18 +162,22 @@ def test_elem_layer():
 def test_update_docs():
     corpus = Corpus(db="tmp.db", new=True)
     corpus.add_layer_meta("text")
-    corpus.add_layer_meta("author")
+    corpus.add_layer_meta("words", layer_type="span", base="text")
 
-    doc = corpus.add_doc(text="This is a document.")
-    doc.author = "John Doe"
+    doc = corpus.add_doc("This is a document.")
+    doc_ids1 = str(corpus.doc_ids)
+    doc.words = [[0,4], [5,7], [8,9], [10,18], [18,19]]
+    doc_ids2 = str(corpus.doc_ids)
 
+    assert(doc_ids1 == doc_ids2)
     assert(doc.text.text[0] == "This is a document.")
-    assert(doc.author.text[0] == "John Doe")
+    assert(doc.words.text == ['This', 'is', 'a', 'document', '.'])
+
 
 def test_read_yaml_str2():
     corpus = read_yaml_str("_meta:\n  text:\n    type: characters\n"
     "  author:\n    type: characters\nwiDv:\n   text: This is a document.\n"
-    "   author: John Doe\n", "tmp.db")
+    "   author: John Doe\n", "tmp2.db")
 
     for _, doc in corpus.docs:
         assert(doc.text.text[0] == "This is a document.")
