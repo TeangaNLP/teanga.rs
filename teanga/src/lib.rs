@@ -16,16 +16,18 @@ pub mod disk_corpus;
 pub mod document;
 pub mod layer;
 pub mod layer_builder;
+pub mod query;
 pub mod serialization;
 pub mod match_condition;
 pub mod transaction_corpus;
 mod tcf;
 
-pub use document::{Document, DocumentContent};
+pub use document::{Document, DocumentContent, DocumentBuilder};
 pub use disk_corpus::DiskCorpus;
 pub use transaction_corpus::TransactionCorpus;
 pub use layer::{IntoLayer, Layer, LayerDesc, DataType, LayerType, TeangaData};
 pub use layer_builder::build_layer;
+pub use query::Query;
 pub use tcf::{write_tcf, read_tcf, write_tcf_header, write_tcf_doc, doc_content_to_bytes, bytes_to_doc, Index, IndexResult};
 pub use match_condition::{TextMatchCondition, DataMatchCondition};
 
@@ -41,7 +43,13 @@ pub trait Corpus {
         base: Option<String>, data: Option<DataType>, link_types: Option<Vec<String>>, 
         target: Option<String>, default: Option<Layer>,
         meta: HashMap<String, Value>) -> TeangaResult<()>;
+    fn build_layer(&mut self, name: &str) -> crate::layer_builder::LayerBuilderImpl<Self::LayerStorage, Self::Content, Self> where Self: Sized {
+        build_layer(self, name)
+    }
     fn add_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, content : DC) -> TeangaResult<String>;
+    fn build_doc<'a>(&'a mut self) -> DocumentBuilder<'a, Self> where Self : Sized {
+        DocumentBuilder::new(self)
+    }
     fn update_doc<D : IntoLayer, DC: DocumentContent<D>>(&mut self, id : &str, content : DC) -> TeangaResult<String>;
     fn remove_doc(&mut self, id : &str) -> TeangaResult<()>;
     fn get_doc_by_id(&self, id : &str) -> TeangaResult<Document>;
@@ -60,11 +68,10 @@ pub trait Corpus {
         let mut freq = HashMap::new();
         for doc_id in self.get_docs() {
             let doc = self.get_doc_by_id(&doc_id)?;
-            if let Some(text) = doc.text(layer, self.get_meta()) {
-                for word in text {
-                    if condition.matches(word) {
-                        *freq.entry(word.to_string()).or_insert(0) += 1;
-                    }
+            let text = doc.text(layer, self.get_meta())?;
+            for word in text {
+                if condition.matches(word) {
+                    *freq.entry(word.to_string()).or_insert(0) += 1;
                 }
             }
         }
@@ -87,6 +94,17 @@ pub trait Corpus {
     } 
     fn iter_docs<'a>(&'a self) -> Box<dyn Iterator<Item=TeangaResult<Document>> + 'a> {
         Box::new(self.get_docs().into_iter().map(move |x| self.get_doc_by_id(&x)))
+    }
+
+    fn iter_doc_ids<'a>(&'a self) -> Box<dyn Iterator<Item=TeangaResult<(String, Document)>> + 'a> {
+        Box::new(self.get_docs().into_iter().map(move |x| self.get_doc_by_id(&x).map(|d| (x, d))))
+    }
+
+    fn search<'a>(&'a self, query : Query) -> Box<dyn Iterator<Item=TeangaResult<(String, Document)>> + 'a> {
+        Box::new(self.iter_doc_ids().filter(move |x| match x {
+            Ok((_, doc)) => query.matches(doc, self.get_meta()),
+            Err(_) => false
+        }))
     }
 }
 
@@ -377,7 +395,11 @@ pub enum TeangaError {
     #[error("Document key {0} not in meta")]
     DocumentKeyError(String),
     #[error("Document not found")]
-    DocumentNotFoundError
+    DocumentNotFoundError,
+    #[error("Layer {0} does not exist")]
+    LayerNotFoundError(String),
+    #[error("Indexing error for layer {0} targetting {0}")]
+    IndexingError(String, String),
 }
 
 pub type TeangaResult<T> = Result<T, TeangaError>;
