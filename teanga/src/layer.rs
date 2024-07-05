@@ -328,67 +328,6 @@ impl Layer {
         }
     }
 
-
-
-//    /// Get the indexes part of the layer relative to the base layer
-//    /// 
-//    /// # Arguments
-//    /// layer_desc - The layer description
-//    /// n - The length of the base layer
-//    pub fn indexes(&self, layer_desc: &LayerDesc, n : u32) -> Vec<(u32, u32)> {
-//        match self {
-//            Layer::Characters(s) => vec![(0u32, s.len() as u32)],
-//            Layer::L1(indexes) => {
-//                if layer_desc.layer_type == LayerType::seq {
-//                    (0..indexes.len()).map(|i| (i as u32, (i + 1) as u32)).collect()
-//                } else if layer_desc.layer_type == LayerType::div {
-//                    (0..indexes.len()).map(|i| (indexes[i], if i == indexes.len() - 1 { n } else { indexes[i + 1] })).collect()
-//                } else if layer_desc.layer_type == LayerType::element {
-//                    (0..indexes.len()).map(|i| (indexes[i], indexes[i] + 1)).collect()
-//                } else {
-//                    panic!("Layer type L1 not supported for layer type {}", layer_desc.layer_type)
-//                }
-//            },
-//            Layer::L2(indexes) => {
-//                if layer_desc.layer_type == LayerType::div {
-//                    (0..indexes.len()).map(|i| (indexes[i].0, if i == indexes.len() - 1 { n } else { indexes[i + 1].0 })).collect()
-//                } else if layer_desc.layer_type == LayerType::element {
-//                    (0..indexes.len()).map(|i| (indexes[i].0, indexes[i].1)).collect()
-//                } else if layer_desc.layer_type == LayerType::span {
-//                    indexes.clone()
-//                } else {
-//                    panic!("Layer type L2 not supported for layer type {}", layer_desc.layer_type)
-//                }
-//            }
-//            Layer::L3(indexes) => indexes.iter().map(|&(i, j, _)| (i, j)).collect(),
-//            Layer::LS(indexes) => (0..indexes.len()).map(|i| (i as u32, (i + 1) as u32)).collect(),
-//            Layer::L1S(indexes) => {
-//                if layer_desc.layer_type == LayerType::div {
-//                    (0..indexes.len()).map(|i| (indexes[i].0, if i == indexes.len() - 1 { n } else { indexes[i + 1].0 })).collect()
-//                } else if layer_desc.layer_type == LayerType::element {
-//                    (0..indexes.len()).map(|i| (indexes[i].0, indexes[i].0 + 1)).collect()
-//                } else if layer_desc.layer_type == LayerType::seq {
-//                    (0..indexes.len()).map(|i| (i as u32, (i + 1) as u32)).collect()
-//                } else {
-//                    panic!("Layer type L1S not supported for layer type {}", layer_desc.layer_type)
-//                }
-//            },
-//            Layer::L2S(indexes) => {
-//                if layer_desc.layer_type == LayerType::div {
-//                    (0..indexes.len()).map(|i| (indexes[i].0, if i == indexes.len() - 1 { n } else { indexes[i + 1].0 })).collect()
-//                } else if layer_desc.layer_type == LayerType::element {
-//                    (0..indexes.len()).map(|i| (indexes[i].0, indexes[i].1)).collect()
-//                } else if layer_desc.layer_type == LayerType::span {
-//                    indexes.iter().map(|&(i, j, _)| (i, j)).collect()
-//                } else {
-//                    panic!("Layer type L2S not supported for layer type {}", layer_desc.layer_type)
-//                }
-//            },
-//            Layer::L3S(indexes) => indexes.iter().map(|&(i, j, _, _)| (i, j)).collect(),
-//            Layer::MetaLayer(_) => Vec::new()
-//        }
-//    }
-
     /// Get the data part of the layer
     pub fn data(&self, layer_desc : &LayerDesc) -> Vec<TeangaData> {
        match self {
