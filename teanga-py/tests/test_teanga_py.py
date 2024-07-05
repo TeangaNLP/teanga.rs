@@ -36,7 +36,7 @@ def test_docs():
     corpus = Corpus(db="tmp.db", new=True)
     corpus.add_layer_meta("text")
     _doc = corpus.add_doc("This is a document.")
-    assert (str(corpus.docs) == "[('Kjco', Document('Kjco', " +
+    assert (str(list(corpus.docs)) == "[('Kjco', Document('Kjco', " +
     "{'text': CharacterLayer('This is a document.')}))]")
  
 def test_doc_by_id():
@@ -182,6 +182,29 @@ def test_read_yaml_str2():
     for _, doc in corpus.docs:
         assert(doc.text.text[0] == "This is a document.")
         assert(doc.author.text[0] == "John Doe")
+
+def test_search():
+    corpus = Corpus(db="tmp.db", new=True)
+    corpus.add_layer_meta("text")
+    corpus.add_layer_meta("words", layer_type="span", base="text")
+    corpus.add_layer_meta("pos", layer_type="seq", base="words",
+                           data=["NOUN", "VERB", "ADJ"])
+    corpus.add_layer_meta("lemma", layer_type="seq", base="words",
+                           data="string")
+    doc = corpus.add_doc("Colorless green ideas sleep furiously.")
+    doc.words = [(0, 9), (10, 15), (16, 21), (22, 27), (28, 37)]
+    doc.pos = ["ADJ", "ADJ", "NOUN", "VERB", "ADV"]
+    doc.lemma = ["colorless", "green", "idea", "sleep", "furiously"]
+    assert(list(corpus.search(pos="NOUN")) == ['9wpe'])
+    assert(list(corpus.search(pos=["NOUN", "VERB"])) == ['9wpe'])
+    assert(list(corpus.search(pos={"$in": ["NOUN", "VERB"]})) == ['9wpe'])
+    assert(list(corpus.search(pos={"$regex": "N.*"})) == ['9wpe'])
+    assert(list(corpus.search(pos="VERB", lemma="sleep")) == ['9wpe'])
+    assert(list(corpus.search(pos="VERB", words="idea")) == [])
+    assert(list(corpus.search(pos="VERB", words="ideas")) == ['9wpe'])
+    assert(list(corpus.search({"pos": "VERB", "lemma": "sleep"})) == ['9wpe'])
+    assert(list(corpus.search({"$and": {"pos": "VERB", "lemma": "sleep"}})) == ['9wpe'])
+ 
 
 # Awaiting merger of PR in teanga2
 #def test_text_freq():

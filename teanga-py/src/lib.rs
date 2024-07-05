@@ -6,6 +6,7 @@ use ::teanga::{DiskCorpus, LayerDesc, LayerType, DataType, Value, Layer, Corpus}
 use std::collections::HashMap;
 
 mod tcf_py;
+mod query;
 
 use tcf_py::TCFPyCorpus;
 use ::teanga::{TeangaResult, IntoLayer};
@@ -88,6 +89,15 @@ impl PyDiskCorpus {
     fn update_doc(&mut self, id : &str, content: HashMap<String, PyRawLayer>) -> PyResult<String> {
         self.0.update_doc(id, content.iter().map(|(k,v)| (k.clone(), v.0.clone())).collect::<HashMap<String, Layer>>())
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))
+    }
+
+    fn search(&self, query : query::PyQuery) -> PyResult<Vec<String>> {
+        let mut vec = Vec::new();
+        for result in self.0.search(query.0) {
+            vec.push(result.
+                map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?.0);
+        }
+        Ok(vec)
     }
 }
 

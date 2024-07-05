@@ -25,10 +25,8 @@ pub enum Query {
 impl Query {
     pub fn matches(&self, document : &Document,
         meta : &HashMap<String, LayerDesc>) -> bool {
-        eprintln!("Query: {:?}", self);
         match self {
             Query::Text(layer, text) => {
-                eprintln!("Text: {:?}", document.text(layer, meta));
                 document.text(layer, meta).map_or(false,
                     |t| t.iter().any(|t| t == text))
             },

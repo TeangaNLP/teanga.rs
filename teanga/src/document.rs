@@ -72,9 +72,7 @@ impl Document {
                 char_layer_desc = meta.get(char_layer).unwrap();
             }
             let indexes = self.indexes(layer, char_layer, meta)?;
-            eprintln!("Indexes: {:?}", indexes);
             if let Some(character_layer) = self.content.get(char_layer) {
-                eprintln!("Characters: {:?}", character_layer.characters());
                 if let Some(characters) = character_layer.characters() {
                     let mut text = Vec::new();
                     for (start, end) in indexes {
