@@ -8,12 +8,12 @@ use std::io::BufRead;
 
 use crate::tcf::{TCFResult, TCFError};
 use crate::tcf::index::Index;
-use crate::tcf::tcf::{TCF, TCF_EMPTY_LAYER};
+use crate::tcf::layer::{TCFLayer, TCF_EMPTY_LAYER};
 
 
 
 fn bytes_to_layer(bytes : &[u8], idx : &mut Index, layer_desc : &LayerDesc) -> TCFResult<(Layer, usize)> {
-    let (tcf, len) = TCF::from_bytes(bytes, 0, layer_desc)?;
+    let (tcf, len) = TCFLayer::from_bytes(bytes, 0, layer_desc)?;
     Ok((tcf.to_layer(idx, layer_desc), len))
 }
 
@@ -24,7 +24,7 @@ pub enum ReadLayerResult<Layer> {
 }
 
 fn read_layer<R : BufRead>(bytes : &mut R, idx : &mut Index, layer_desc : &LayerDesc) -> TCFResult<ReadLayerResult<Layer>> {
-    match TCF::from_reader(bytes, layer_desc)? {
+    match TCFLayer::from_reader(bytes, layer_desc)? {
         ReadLayerResult::Layer(tcf) => Ok(ReadLayerResult::Layer(tcf.to_layer(idx, layer_desc))),
         ReadLayerResult::Empty => Ok(ReadLayerResult::Empty),
         ReadLayerResult::Eof => Ok(ReadLayerResult::Eof)

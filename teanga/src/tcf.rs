@@ -5,7 +5,7 @@ use thiserror::Error;
 mod data;
 mod index;
 mod read;
-mod tcf;
+mod layer;
 mod tcf_index;
 mod type_index;
 mod write;

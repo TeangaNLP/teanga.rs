@@ -7,11 +7,11 @@ use crate::{TeangaResult, TeangaError, DocumentContent, IntoLayer, Corpus};
 
 use crate::tcf::TCFResult;
 use crate::tcf::index::Index;
-use crate::tcf::tcf::TCF;
-use crate::tcf::tcf::TCF_EMPTY_LAYER;
+use crate::tcf::layer::TCFLayer;
+use crate::tcf::layer::TCF_EMPTY_LAYER;
 
 fn layer_to_bytes(layer : &Layer, idx : &mut Index, ld : &LayerDesc) -> TCFResult<Vec<u8>> {
-    Ok(TCF::from_layer(layer, idx, ld)?.into_bytes())
+    Ok(TCFLayer::from_layer(layer, idx, ld)?.into_bytes())
 }
 
 
