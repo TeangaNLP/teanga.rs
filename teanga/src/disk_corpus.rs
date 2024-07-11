@@ -1,12 +1,17 @@
+//! Corpora stored on disk.
+//!
+//! A disk corpus is a corpus that is stored on disk. It is a corpus that is
+//! stored in a database. The database is a key-value store that stores the
+//! metadata for the corpus and the documents in the corpus.
 use std::collections::HashMap;
 use crate::*;
 
 #[derive(Debug,Clone)]
-/// A corpus object
+/// A corpus stored on disk
 pub struct DiskCorpus {
-    pub meta: HashMap<String, LayerDesc>,
-    pub order: Vec<String>,
-    pub path: String // TODO not public
+    meta: HashMap<String, LayerDesc>,
+    order: Vec<String>,
+    path: String // TODO not public
 }
 
 impl DiskCorpus {
@@ -285,4 +290,13 @@ impl Corpus for DiskCorpus {
     }
 }
 
+
+impl WriteableCorpus for DiskCorpus {
+    fn set_meta(&mut self, meta : HashMap<String, LayerDesc>) {
+        self.meta = meta;
+    }
+    fn set_order(&mut self, order : Vec<String>) {
+        self.order = order;
+    }
+}
 

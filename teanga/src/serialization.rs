@@ -1,5 +1,4 @@
-// Serialization support for Teanga DB
-// -----------------------------------------------------------------------------
+//! Serialization support for Teanga
 use crate::{Corpus, DiskCorpus, WriteableCorpus, LayerDesc, Layer, TransactionCorpus, TeangaJsonError, Document};
 use itertools::Itertools;
 use serde::Deserializer;
@@ -16,38 +15,6 @@ use std::path::Path;
 use thiserror::Error;
 use reqwest;
 use flate2;
-
-//struct TeangaVisitor(String);
-//
-//impl<'de> Visitor<'de> for TeangaVisitor {
-//    type Value = DiskCorpus;
-//
-//    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-//        formatter.write_str("a string representing a corpus")
-//    }
-//
-//    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-//        where A: serde::de::MapAccess<'de>
-//    {
-//        let mut trans = TransactionCorpus::new(&self.0).map_err(serde::de::Error::custom)?;
-//        while let Some(ref key) = map.next_key::<String>()? {
-//            if key == "_meta" {
-//                let data = map.next_value::<HashMap<String, LayerDesc>>()?;
-//                trans.set_meta(data);
-//            } else if key == "_order" {
-//                let data = map.next_value::<Vec<String>>()?;
-//                trans.set_order(data);
-//            } else {
-//                let doc = map.next_value::<HashMap<String, Layer>>()?;
-//                let id = trans.add_doc(doc).map_err(serde::de::Error::custom)?;
-//                if id[..min(id.len(), key.len())] != key[..min(id.len(), key.len())] {
-//                    return Err(serde::de::Error::custom(format!("Document fails hash check: {} != {}", id, key)))
-//                }
-//            }
-//        }
-//        Ok(trans.commit().map_err(serde::de::Error::custom)?)
-//    }
-//}
 
 struct TeangaVisitor2<'a, C : WriteableCorpus>(&'a mut C, bool);
 
@@ -91,10 +58,20 @@ fn corpus_serialize<C : Corpus, S>(c : &C, serializer: S) -> Result<S::Ok, S::Er
     map.end()
 }
 
-pub fn pretty_yaml_serialize<W : Write>(corpus: &DiskCorpus, mut writer: W) -> Result<(), SerializeError> {
+/// Write a corpus as pretty YAML
+///
+/// # Arguments
+///
+/// * `corpus` - The corpus to write
+/// * `writer` - The writer to write to
+///
+/// # Returns
+///
+/// A result indicating success or failure
+pub fn pretty_yaml_serialize<W : Write, C: Corpus>(corpus: &C, mut writer: W) -> Result<(), SerializeError> {
     writer.write_all(b"_meta:\n")?;
-    for name in corpus.meta.keys().sorted() {
-        let meta = &corpus.meta[name];
+    for name in corpus.get_meta().keys().sorted() {
+        let meta = &corpus.get_meta()[name];
         writer.write_all(b"    ")?;
         writer.write_all(name.as_bytes())?;
         writer.write_all(b":\n")?;
@@ -123,7 +100,7 @@ pub fn pretty_yaml_serialize<W : Write>(corpus: &DiskCorpus, mut writer: W) -> R
             writer.write_all(b"\n")?;
         }
     }
-    for id in &corpus.order {
+    for id in corpus.get_order() {
         writer.write_all(id.as_bytes())?;
         writer.write_all(b":\n")?;
         let doc = corpus.get_doc_by_id(id)?;
@@ -146,16 +123,38 @@ pub fn pretty_yaml_serialize<W : Write>(corpus: &DiskCorpus, mut writer: W) -> R
     Ok(())
 }
 
+/// Read a corpus from JSON
+///
+/// # Arguments
+///
+/// * `reader` - The reader to read from
+/// * `corpus` - The corpus to read into
+/// * `meta_only` - Whether to read only the metadata
 pub fn read_json<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C, meta_only : bool) -> Result<(), serde_json::Error> {
     let mut deserializer = serde_json::Deserializer::from_reader(reader);
     deserializer.deserialize_any(TeangaVisitor2(corpus, meta_only))
 }
 
+/// Read a corpus from YAML
+///
+/// # Arguments
+///
+/// * `reader` - The reader to read from
+/// * `corpus` - The corpus to read into
+/// * `meta_only` - Whether to read only the metadata
 pub fn read_yaml<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C, meta_only : bool) -> Result<(), serde_yaml::Error> {
     let deserializer = serde_yaml::Deserializer::from_reader(reader);
     deserializer.deserialize_any(TeangaVisitor2(corpus, meta_only))
 }
 
+/// Read a corpus from JSONL. That is a file with one JSON document per line. 
+/// As this format does not have metadata, the corpus must have already been
+/// initialized with metadata.
+///
+/// # Arguments
+///
+/// * `reader` - The reader to read from
+/// * `corpus` - The corpus to read into
 pub fn read_jsonl<'de, R: BufRead, C : WriteableCorpus>(reader: R, corpus : &mut C) -> Result<(), TeangaJsonError> {
     for line in reader.lines() {
         let doc : HashMap<String, Layer> = serde_json::from_str(&line?)?;
@@ -164,24 +163,49 @@ pub fn read_jsonl<'de, R: BufRead, C : WriteableCorpus>(reader: R, corpus : &mut
     Ok(())
 }
 
+/// Read a single line of JSON as a JSON-L document
+///
+/// # Arguments
+///
+/// * `line` - The line to read
+/// * `corpus` - The corpus to read into
 pub fn read_jsonl_line<'de, C : WriteableCorpus>(line: String,
     corpus : &mut C) -> Result<Document, TeangaJsonError> {
         let doc : HashMap<String, Layer> = serde_json::from_str(&line)?;
         Ok(Document::new(doc, corpus.get_meta())?)
 }
 
+/// Write a corpus as JSON
+///
+/// # Arguments
+///
+/// * `writer` - The writer to write to
+/// * `corpus` - The corpus to write
 pub fn write_json<W : Write, C : Corpus>(mut writer : W, corpus : &C) -> Result<(), serde_json::Error> 
     where C::Content : Serialize {
     let mut ser = serde_json::Serializer::new(&mut writer);
     corpus_serialize(corpus, &mut ser)
 }
 
+/// Write a corpus as YAML
+///
+/// # Arguments
+///
+/// * `writer` - The writer to write to
+/// * `corpus` - The corpus to write
 pub fn write_yaml<W : Write, C : Corpus>(mut writer : W, corpus : &C) -> Result<(), serde_yaml::Error> 
     where C::Content : Serialize {
     let mut ser = serde_yaml::Serializer::new(&mut writer);
     corpus_serialize(corpus, &mut ser)
 }
 
+
+/// Write a corpus as JSONL. This will not write the metadata of the corpus.
+///
+/// # Arguments
+///
+/// * `writer` - The writer to write to
+/// * `corpus` - The corpus to write
 pub fn write_jsonl<W : Write, C : Corpus>(mut writer : W, corpus : &C) -> Result<(), SerializeError>
     where C::Content : Serialize {
     for id in corpus.get_order() {
@@ -257,20 +281,28 @@ fn write_corpus_to_yaml_file(corpus: &DiskCorpus, mut file : File) -> Result<(),
     corpus_serialize(corpus, &mut ser)
 }
 
+/// A serialization error
 #[derive(Error,Debug)]
 pub enum SerializeError {
+    /// An error occurred during JSON serialization
     #[error("Json error: {0}")]
     Json(#[from] serde_json::Error),
+    /// An error occurred during YAML serialization
     #[error("Yaml error: {0}")]
     Yaml(#[from] serde_yaml::Error),
+    /// A generic I/O Error
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+    /// An error with the data was encountered
     #[error("Teanga model error: {0}")]
     Teanga(#[from] crate::TeangaError),
+    /// An error when formatting was encountered
     #[error("IO error: {0}")]
     Fmt(#[from] std::fmt::Error),
+    /// An error in decoding UTF-8
     #[error("UTF8 error: {0}")]
     Utf8(#[from] std::string::FromUtf8Error),
+    /// An error reading from a URL
     #[error("Reqwest error: {0}")]
     Reqwest(#[from] reqwest::Error),
     //#[error("Flate2 error: {0}")]

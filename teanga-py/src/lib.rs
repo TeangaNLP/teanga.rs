@@ -9,7 +9,7 @@ mod tcf_py;
 mod query;
 
 use tcf_py::TCFPyCorpus;
-use ::teanga::{TeangaResult, IntoLayer};
+use ::teanga::{TeangaResult, IntoLayer, WriteableCorpus};
 
 #[pyclass(name="Corpus")]
 #[derive(Debug,Clone)]
@@ -71,7 +71,7 @@ impl PyDiskCorpus {
 
     #[setter]
     fn set_meta(&mut self, meta: HashMap<String, PyLayerDesc>) -> PyResult<()> {
-        self.0.meta = meta.iter().map(|(k,v)| (k.clone(), v.0.clone())).collect();
+        self.0.set_meta(meta.iter().map(|(k,v)| (k.clone(), v.0.clone())).collect());
         Ok(())
     }
 
@@ -82,7 +82,7 @@ impl PyDiskCorpus {
 
     #[setter]
     fn set_order(&mut self, order: Vec<String>) -> PyResult<()> {
-        self.0.order = order;
+        self.0.set_order(order);
         Ok(())
     }
 

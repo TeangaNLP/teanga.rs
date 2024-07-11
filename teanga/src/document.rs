@@ -1,18 +1,22 @@
+//! Documents in the corpus.
 use std::collections::HashMap;
 use crate::layer::{Layer, IntoLayer, LayerDesc, TeangaData};
 use serde::{Deserialize, Serialize};
 use crate::{Corpus, TeangaResult, TeangaError};
 use std::ops::Index;
 
+/// Anything that can be understood as a document content
 pub trait DocumentContent<D> : IntoIterator<Item=(String, D)> where D : IntoLayer {
+    /// The keys of the layers in the document
     fn keys(&self) -> Vec<String>;
+    /// Convert the content into a map of layers
     fn as_map(self, meta : &HashMap<String, LayerDesc>) -> TeangaResult<HashMap<String, Layer>> where Self : Sized {
         let mut map = HashMap::new();
         for (k, v) in self.into_iter() {
             if let Some(meta) = meta.get(&k) {
                 map.insert(k, v.into_layer(meta)?);
             } else {
-                return Err(TeangaError::DocumentKeyError(k))
+                return Err(TeangaError::LayerNotFoundError(k))
             }
         }
         Ok(map)
@@ -40,6 +44,16 @@ pub struct Document {
 }
 
 impl Document {
+    /// Create a new document from its content
+    ///
+    /// # Arguments
+    ///
+    /// * `content` - The content of the document
+    /// * `meta` - The metadata for the document
+    ///
+    /// # Returns
+    ///
+    /// A new document object
     pub fn new<D : IntoLayer, DC : DocumentContent<D>>(content : DC, meta: &HashMap<String, LayerDesc>) -> TeangaResult<Document> {
        for key in content.keys() {
             if !meta.contains_key(&key) {
@@ -61,6 +75,15 @@ impl Document {
 
     /// Get the text that is indexed by a particular layer
     /// divided by the annotations in this layer
+    ///
+    /// # Arguments
+    ///
+    /// * `layer` - The layer to get the text from
+    /// * `meta` - The metadata for the document
+    ///
+    /// # Returns
+    ///
+    /// A vector of strings, each string representing a span of text
     pub fn text(&self, layer: &str, 
         meta : &HashMap<String, LayerDesc>)
         -> TeangaResult<Vec<&str>> {
@@ -90,6 +113,16 @@ impl Document {
         }
     }
 
+    /// Get the data that is contained in this layer
+    ///
+    /// # Arguments
+    ///
+    /// * `layer` - The layer to get the data from
+    /// * `meta` - The metadata for the document
+    ///
+    /// # Returns
+    ///
+    /// A vector of data objects
     pub fn data(&self, layer: &str, 
         meta : &HashMap<String, LayerDesc>)
         -> Option<Vec<TeangaData>> {
@@ -101,6 +134,17 @@ impl Document {
         None
     }
 
+    /// Get the indexes that this layer refers to in the target layer
+    ///
+    /// # Arguments
+    ///
+    /// * `layer` - The layer to get the indexes from
+    /// * `target_layer` - The layer to get the indexes in
+    /// * `meta` - The metadata for the document
+    ///
+    /// # Returns
+    ///
+    /// A vector of tuples, each tuple representing a span of text
     pub fn indexes(&self, layer: &str, target_layer: &str,
         meta : &HashMap<String, LayerDesc>)
         -> TeangaResult<Vec<(usize, usize)>> {
@@ -110,54 +154,26 @@ impl Document {
             Err(TeangaError::LayerNotFoundError(layer.to_string()))
         }
     }
-//        if let Some(layer_val) = self.content.get(layer) {
-//            if let Some(layer_desc) = meta.get(layer) {
-//                if let Some(ref direct_base_layer) = layer_desc.base {
-//                    if let Some(direct_base_layer_val) = self.content.get(direct_base_layer) {
-//                        let indexes = layer_val.indexes(layer_desc, 
-//                            direct_base_layer_val.len() as u32);
-//                        if layer == base_layer {
-//                            Ok(indexes)
-//                        } else {
-//                            let base_indexes = self.indexes(direct_base_layer, base_layer, meta)?;
-//                            let mut mapped_indexes = Vec::new();
-//                            for (start, end) in indexes { 
-//                                mapped_indexes.push((base_indexes[start as usize].0, base_indexes[end as usize].1))
-//                            }
-//                            Ok(mapped_indexes)
-//                        }
-//                    } else {
-//                        Err(TeangaError::LayerNotFoundError(direct_base_layer.to_string()))
-//                    }
-//                } else {
-//                    if layer == base_layer {
-//                        let indexes = layer_val.indexes(layer_desc, 
-//                            (layer_val.len() + 1) as u32);
-//                        Ok(indexes)
-//                    } else {
-//                        Err(TeangaError::ModelError(
-//                            format!("Requested base layer {} is not a base layer of layer {}", base_layer, layer)))
-//                    }
-//                }
-//            } else {
-//                Err(TeangaError::LayerNotFoundError(layer.to_string()))
-//            }
-//        } else {
-//            Err(TeangaError::LayerNotFoundError(layer.to_string()))
-//        }
 
+    /// Get the names of layers in this document
     pub fn keys(&self) -> Vec<String> {
         self.content.keys().cloned().collect()
     }
 
+    /// Get a single layer
     pub fn get(&self, key: &str) -> Option<&Layer> {
         self.content.get(key)
     }
 
+    /// Get a mutable reference to a single layer
     pub fn get_mut(&mut self, key: &str) -> Option<&mut Layer> {
         self.content.get_mut(key)
     }
 
+    /// Set a layer value.
+    ///
+    /// **Note**: If you set a character layer this may change the identifier
+    /// of the document
     pub fn set(&mut self, key: &str, value: Layer) {
         self.content.insert(key.to_string(), value);
     }
@@ -186,13 +202,27 @@ impl DocumentContent<Layer> for Document {
     }
 }
 
+/// Builder interface for creating documents
 pub struct DocumentBuilder<'a, C : Corpus>(&'a mut C, HashMap<String, Layer>);
 
 impl<'a, C : Corpus> DocumentBuilder<'a, C> {
+    /// Create a new builder. This can also be done using the `Corpus.build_doc()`
+    /// method
     pub fn new(corpus : &'a mut C) -> DocumentBuilder<'a, C> {
         DocumentBuilder(corpus, HashMap::new())
     }
 
+    /// Add a layer to the document
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name of the layer
+    /// * `layer` - The layer content
+    ///
+    /// # Returns
+    ///
+    /// The same builder object passed or an error if the layer does not exist
+    /// or the data provided is not valid for that layer's metadata
     pub fn layer<I : IntoLayer>(mut self, name: &str, layer: I) -> TeangaResult<DocumentBuilder<'a, C>> {
         let layer_desc = self.0.get_meta().get(name)
                 .ok_or_else(|| TeangaError::ModelError(
@@ -201,6 +231,11 @@ impl<'a, C : Corpus> DocumentBuilder<'a, C> {
         Ok(self)
     }
 
+    /// Finalize the builder and add this document to the corpus
+    ///
+    /// # Returns
+    ///
+    /// The ID of the document
     pub fn add(self) -> TeangaResult<String> {
         self.0.add_doc(self.1)
     }

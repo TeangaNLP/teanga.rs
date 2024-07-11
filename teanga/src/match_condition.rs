@@ -1,10 +1,12 @@
-/// Text match condition
-///
-/// This module provides a trait for whether a section
-/// of text matches a condition.
+//! Text match condition
+//!
+//! This module provides a trait for whether a section
+//! of text matches a condition.
 use crate::layer::TeangaData;
 
+/// Matching condition for text
 pub trait TextMatchCondition {
+    /// Check if the text matches the condition
     fn matches(&self, text: &str) -> bool;
 }
 
@@ -28,7 +30,9 @@ impl TextMatchCondition for AnyText {
     }
 }
 
+/// Data match condition
 pub trait DataMatchCondition {
+    /// Check if the data matches the condition
     fn matches(&self, data: &TeangaData) -> bool;
 }
 

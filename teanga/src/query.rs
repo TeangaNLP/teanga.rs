@@ -1,24 +1,54 @@
+//! Searching a corpus
+//!
+//! The `query` module provides a way to search a corpus for documents that match
+//! a set of conditions.
+//!
+//! # Examples
+//!
+//! ```
+//! use teanga::query::{QueryBuilder, Query};
+//! let query = QueryBuilder::new()
+//!     .text("words".to_string(), "fox".to_string())
+//!     .build();
+//! ```
 use std::collections::{HashMap, HashSet};
 use crate::{Document, LayerDesc, TeangaData};
 use regex::Regex;
 
+/// A query for searching a corpus
 #[derive(Debug)]
 pub enum Query {
+    /// A text value in a layer matches
     Text(String, String),
+    /// A text value in a layer does not match
     TextNot(String, String),
+    /// A data value in a layer matches
     Value(String, TeangaData),
+    /// A data value in a layer does not match
     ValueNot(String, TeangaData),
+    /// A data value in a layer is less than a value
     LessThan(String, TeangaData),
+    /// A data value in a layer is less than or equal to a value
     LessThanEqual(String, TeangaData),
+    /// A data value in a layer is greater than a value
     GreaterThan(String, TeangaData),
+    /// A data value in a layer is greater than or equal to a value
     GreaterThanEqual(String, TeangaData),
+    /// A data value in a layer is in a set of values
     In(String, HashSet<TeangaData>),
+    /// A data value in a layer is not in a set of values
     NotIn(String, HashSet<TeangaData>),
+    /// A data value in a layer matches a regex
     Regex(String, Regex),
+    /// A text value in a layer matches a regex
     TextRegex(String, Regex),
+    /// All of a set of queries match
     And(Vec<Query>),
+    /// Any of a set of queries match
     Or(Vec<Query>),
+    /// A query does not match
     Not(Box<Query>),
+    /// A layer is present in a document
     Exists(String)
 }
 
@@ -93,17 +123,21 @@ impl Query {
     }
 }
 
+/// Utility for building queries
 pub struct QueryBuilder(Query);
 
 impl QueryBuilder {
+    /// Start building a new query
     pub fn new() -> QueryBuilder {
         QueryBuilder(Query::And(Vec::new()))
     }
 
+    /// Finish building the query
     pub fn build(self) -> Query {
         self.0
     }
 
+    /// Add a text match condition to the query
     pub fn text(self, layer : String, text: String) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
@@ -114,6 +148,7 @@ impl QueryBuilder {
         }
     }
 
+    /// Add a text not match condition to the query
     pub fn text_not(self, layer : String, text: String) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
@@ -124,6 +159,7 @@ impl QueryBuilder {
         }
     }
 
+    /// Add a data match condition to the query
     pub fn value(self, layer : String, value: TeangaData) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
@@ -134,6 +170,7 @@ impl QueryBuilder {
         }
     }
 
+    /// Add a data not match condition to the query
     pub fn value_not(self, layer : String, value: TeangaData) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
@@ -144,6 +181,7 @@ impl QueryBuilder {
         }
     }
 
+    /// Add a less than condition to the query
     pub fn less_than(self, layer : String, value: TeangaData) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
@@ -154,6 +192,7 @@ impl QueryBuilder {
         }
     }
 
+    /// Add a less than or equal condition to the query
     pub fn less_than_equal(self, layer : String, value: TeangaData) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
@@ -164,6 +203,7 @@ impl QueryBuilder {
         }
     }
 
+    /// Add a greater than condition to the query
     pub fn greater_than(self, layer : String, value: TeangaData) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
@@ -174,6 +214,7 @@ impl QueryBuilder {
         }
     }
 
+    /// Add a greater than or equal condition to the query
     pub fn greater_than_equal(self, layer : String, value: TeangaData) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
@@ -184,6 +225,7 @@ impl QueryBuilder {
         }
     }
 
+    /// Add an in condition to the query
     pub fn in_(self, layer : String, values: HashSet<TeangaData>) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
@@ -194,6 +236,7 @@ impl QueryBuilder {
         }
     }
 
+    /// Add a not in condition to the query
     pub fn not_in(self, layer : String, values: HashSet<TeangaData>) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
@@ -204,6 +247,7 @@ impl QueryBuilder {
         }
     }
 
+    /// Add a data regex condition to the query
     pub fn regex(self, layer : String, regex: Regex) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
@@ -214,6 +258,7 @@ impl QueryBuilder {
         }
     }
 
+    /// Add a text regex condition to the query
     pub fn text_regex(self, layer : String, regex: Regex) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
@@ -224,6 +269,7 @@ impl QueryBuilder {
         }
     }
 
+    /// Combine queries with an and
     pub fn and(self, queries: Vec<Query>) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
@@ -234,6 +280,7 @@ impl QueryBuilder {
         }
     }
 
+    /// Combine queries with an or
     pub fn or(self, queries: Vec<Query>) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
@@ -244,6 +291,7 @@ impl QueryBuilder {
         }
     }
 
+    /// Negate a query
     pub fn not(self, query: Query) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
@@ -254,6 +302,7 @@ impl QueryBuilder {
         }
     }
 
+    /// Add an exists condition to the query
     pub fn exists(self, field: String) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;

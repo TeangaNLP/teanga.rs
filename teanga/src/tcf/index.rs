@@ -1,20 +1,25 @@
 use std::collections::HashMap;
 use lru::LruCache;
 
+/// The result of an index
 #[derive(Debug, Clone, PartialEq)]
 pub enum IndexResult {
+    /// An index value
     Index(u32),
+    /// The string (if the string is not in the index)
     String(String)
 }
 
 
+/// An index for strings used to store values in a TCF file
 pub struct Index {
     map : HashMap<String, u32>,
-    pub vec : Vec<String>,
+    vec : Vec<String>,
     cache : LruCache<String, u32>
 }
 
 impl Index {
+    /// Create a new index
     pub fn new() -> Index {
         Index {
             map : HashMap::new(),
@@ -23,6 +28,17 @@ impl Index {
         }
     }
 
+    /// Create an index from values
+    ///
+    /// # Arguments
+    ///
+    /// * `map` - The map of strings to indices
+    /// * `vec` - The vector of strings
+    /// * `cache` - The cache of strings
+    ///
+    /// # Returns
+    ///
+    /// A new index object
     pub fn from_values(map : HashMap<String, u32>,
         vec : Vec<String>, 
         cache : Vec<String>) -> Index {
@@ -36,6 +52,7 @@ impl Index {
         i
     }
 
+    /// Convert the index into its values
     pub fn into_values(self) -> (HashMap<String, u32>, Vec<String>, Vec<String>) {
         let mut cache = Vec::new();
         for (k, _) in self.cache.iter().rev() {
@@ -44,6 +61,7 @@ impl Index {
         (self.map, self.vec, cache)
     }
 
+    /// Get the index of a string
     pub fn idx(&mut self, str : &String) -> IndexResult {
         if let Some(idx) = self.map.get(str) {
             return IndexResult::Index(*idx);
@@ -59,12 +77,18 @@ impl Index {
         }
     }
 
+    /// Get the string at an index
     pub fn str(&self, idx : u32) -> Option<String> {
         if idx < self.vec.len() as u32 {
             Some(self.vec[idx as usize].clone())
         } else {
             None
         }
+    }
+
+    /// Get the vector of strings directly
+    pub fn vec(&self) -> &Vec<String> {
+        &self.vec
     }
 }
 

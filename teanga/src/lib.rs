@@ -1,3 +1,17 @@
+//! # Teanga 
+//!
+//! Teanga is a datamodel for text corpora that is designed to be simple to use and efficient to store.
+//! This implementation provides both in-memory and disk-based corpora that can be used to store and query text corpora.
+//!
+//! ## Example
+//!
+//! ```rust
+//! use teanga::*;
+//! let mut corpus = SimpleCorpus::new();
+//! corpus.build_layer("text").add();
+//! corpus.build_doc().layer("text", "This is a test document").unwrap().add();
+//! ```
+//
 // Purpose: Rust implementation of the TeangaDB Python module.
 // Author: John P. McCrae
 // License: Apache 2.0
@@ -28,7 +42,7 @@ pub use transaction_corpus::TransactionCorpus;
 pub use layer::{IntoLayer, Layer, LayerDesc, DataType, LayerType, TeangaData};
 pub use layer_builder::build_layer;
 pub use query::Query;
-pub use tcf::{write_tcf, read_tcf, write_tcf_header, write_tcf_doc, doc_content_to_bytes, bytes_to_doc, Index, IndexResult};
+pub use tcf::{write_tcf, read_tcf, write_tcf_header, write_tcf_doc, doc_content_to_bytes, bytes_to_doc, Index, IndexResult, TCFReadError, TCFWriteError};
 pub use match_condition::{TextMatchCondition, DataMatchCondition};
 
 const DOCUMENT_PREFIX : u8 = 0x00;
@@ -37,26 +51,101 @@ const ORDER_BYTES : [u8;1] = [0x04];
 
 /// Trait that defines a corpus according to the Teanga Data Model
 pub trait Corpus {
+    /// The type of the layer storage
     type LayerStorage : IntoLayer;
+    /// The type of the content
     type Content : DocumentContent<Self::LayerStorage>;
+    
+    /// Add a meta layer to the corpus
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name of the layer
+    /// * `layer_type` - The type of the layer
+    /// * `base` - The layer that this layer is on
+    /// * `data` - The data file for this layer
+    /// * `link_types` - The link types for this layer
+    /// * `target` - The target layer for this layer (if using link data)
+    /// * `default` - The default values for this layer
+    /// * `meta` - The metadata for this layer
     fn add_layer_meta(&mut self, name: String, layer_type: LayerType, 
         base: Option<String>, data: Option<DataType>, link_types: Option<Vec<String>>, 
         target: Option<String>, default: Option<Layer>,
         meta: HashMap<String, Value>) -> TeangaResult<()>;
+    /// Build a layer using a builder
+    ///
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name of the layer
+    ///
+    /// # Returns
+    ///
+    /// A builder object
     fn build_layer(&mut self, name: &str) -> crate::layer_builder::LayerBuilderImpl<Self::LayerStorage, Self::Content, Self> where Self: Sized {
         build_layer(self, name)
     }
+    /// Add a document to this corpus
+    ///
+    /// # Arguments
+    ///
+    /// * `content` - The content of the document
+    ///
+    /// # Returns
+    ///
+    /// The ID of the document
     fn add_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, content : DC) -> TeangaResult<String>;
+
+    /// Build a document using a builder
+    ///
+    /// # Returns
+    ///
+    /// A builder object
     fn build_doc<'a>(&'a mut self) -> DocumentBuilder<'a, Self> where Self : Sized {
         DocumentBuilder::new(self)
     }
+
+    /// Update the content of a document. This preserves the order of the documents
+    /// in the corpus
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The ID of the document
+    /// * `content` - The content of the document
+    ///
+    /// # Returns
+    ///
+    /// The new ID of the document (if no text layers are changed this will be the same as input)
     fn update_doc<D : IntoLayer, DC: DocumentContent<D>>(&mut self, id : &str, content : DC) -> TeangaResult<String>;
+    
+    /// Remove a single document from the corpus
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The ID of the document
     fn remove_doc(&mut self, id : &str) -> TeangaResult<()>;
+
+    /// Get a document object by its ID
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The ID of the document
     fn get_doc_by_id(&self, id : &str) -> TeangaResult<Document>;
+
+    /// Get the IDs of all documents in the corpus
     fn get_docs(&self) -> Vec<String>;
+    
+    /// Get the layer metadata
     fn get_meta(&self) -> &HashMap<String, LayerDesc>;
+
+    /// Get the layer metadata as a mutable reference
     fn get_meta_mut(&mut self) -> &mut HashMap<String, LayerDesc>;
+
+    /// Get the order of the documents in the corpus
     fn get_order(&self) -> &Vec<String>;
+
+    /// Add multiple documents to the corpus. This can be more efficient than
+    /// calling add_doc multiple times as it may use a single DB transaction
     fn add_docs<D : IntoLayer, DC : DocumentContent<D>>(&mut self, content : Vec<DC>) -> TeangaResult<Vec<String>> {
         let mut ids = Vec::new();
         for doc in content {
@@ -64,6 +153,17 @@ pub trait Corpus {
         }
         Ok(ids)
     }
+
+    /// Calculate the frequency of words in the text layers of the corpus
+    ///
+    /// # Arguments
+    ///
+    /// * `layer` - The layer to calculate the frequency of
+    /// * `condition` - A condition that must be met for a word to be counted
+    ///
+    /// # Returns
+    ///
+    /// A map from words to their frequency
     fn text_freq<C: TextMatchCondition>(&self, layer : &str, condition : C) -> TeangaResult<HashMap<String, u32>> {
         let mut freq = HashMap::new();
         for doc_id in self.get_docs() {
@@ -78,6 +178,16 @@ pub trait Corpus {
         Ok(freq)
     }
 
+    /// Calculate the frequency of values in a data layer of the corpus
+    ///
+    /// # Arguments
+    ///
+    /// * `layer` - The layer to calculate the frequency of
+    /// * `condition` - A condition that must be met for a value to be counted
+    ///
+    /// # Returns
+    ///
+    /// A map from values to their frequency
     fn val_freq<C: DataMatchCondition>(&self, layer : &str, condition : C) -> TeangaResult<HashMap<TeangaData, u32>> {
         let mut freq = HashMap::new();
         for doc_id in self.get_docs() {
@@ -92,14 +202,24 @@ pub trait Corpus {
         }
         Ok(freq)
     } 
+    /// Iterate over all documents in the corpus
     fn iter_docs<'a>(&'a self) -> Box<dyn Iterator<Item=TeangaResult<Document>> + 'a> {
         Box::new(self.get_docs().into_iter().map(move |x| self.get_doc_by_id(&x)))
     }
-
+    /// Iterate over all documents in the corpus with their IDs
     fn iter_doc_ids<'a>(&'a self) -> Box<dyn Iterator<Item=TeangaResult<(String, Document)>> + 'a> {
         Box::new(self.get_docs().into_iter().map(move |x| self.get_doc_by_id(&x).map(|d| (x, d))))
     }
 
+    /// Search the corpus for documents that match a query
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - The query to match
+    ///
+    /// # Returns
+    ///
+    /// An iterator of IDs and documents that match the query
     fn search<'a>(&'a self, query : Query) -> Box<dyn Iterator<Item=TeangaResult<(String, Document)>> + 'a> {
         Box::new(self.iter_doc_ids().filter(move |x| match x {
             Ok((_, doc)) => query.matches(doc, self.get_meta()),
@@ -108,8 +228,11 @@ pub trait Corpus {
     }
 }
 
+/// A corpus where the metadata and order can be changed
 pub trait WriteableCorpus : Corpus {
+    /// Set the metadata of the corpus
     fn set_meta(&mut self, meta : HashMap<String, LayerDesc>);
+    /// Set the order of the documents in the corpus
     fn set_order(&mut self, order : Vec<String>);
 }
 
@@ -117,12 +240,13 @@ pub trait WriteableCorpus : Corpus {
 #[derive(Debug, Clone, PartialEq)]
 /// An in-memory corpus object
 pub struct SimpleCorpus {
-    pub meta: HashMap<String, LayerDesc>,
-    pub order: Vec<String>,
-    pub content: HashMap<String, Document>
+    meta: HashMap<String, LayerDesc>,
+    order: Vec<String>,
+    content: HashMap<String, Document>
 }
 
 impl SimpleCorpus {
+    /// Create an empty corpus
     pub fn new() -> SimpleCorpus {
         SimpleCorpus {
             meta: HashMap::new(),
@@ -131,6 +255,7 @@ impl SimpleCorpus {
         }
     }
 
+    /// Read the metadata from a YAML file
     pub fn read_yaml_header<'de, R: std::io::Read>(&mut self, r: R) -> Result<(), TeangaYamlError> {
         Ok(crate::serialization::read_yaml(r, self, true)?)
     }
@@ -141,18 +266,6 @@ impl Corpus for SimpleCorpus {
     type LayerStorage = Layer;
     type Content = Document;
 
-    /// Add a layer to the corpus
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The name of the layer
-    /// * `layer_type` - The type of the layer
-    /// * `base` - The layer that this layer is on
-    /// * `data` - The data file for this layer
-    /// * `values` - The values for this layer
-    /// * `target` - The target layer for this layer
-    /// * `default` - The default values for this layer
-    /// * `uri` - The URI of metadata about this layer
     fn add_layer_meta(&mut self, name: String, layer_type: LayerType, 
         base: Option<String>, data: Option<DataType>, link_types: Option<Vec<String>>, 
         target: Option<String>, default: Option<Layer>,
@@ -169,15 +282,6 @@ impl Corpus for SimpleCorpus {
         Ok(())
     }
 
-    /// Add or update a document in the corpus
-    ///
-    /// # Arguments
-    ///
-    /// * `content` - The content of the document
-    ///
-    /// # Returns
-    ///
-    /// The ID of the document
     fn add_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, content : DC) -> TeangaResult<String> {
         let doc = Document::new(content, &self.meta)?;
         let id = teanga_id(&self.order, &doc);
@@ -186,16 +290,6 @@ impl Corpus for SimpleCorpus {
         Ok(id)
     }
 
-    /// Update a document
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - The ID of the document
-    /// * `content` - The content of the document
-    ///
-    /// # Returns
-    ///
-    /// The new ID of the document (if no text layers are changed this will be the same as input)
     fn update_doc<D : IntoLayer, DC: DocumentContent<D>>(&mut self, id : &str, content : DC) -> TeangaResult<String> {
         let doc = match self.get_doc_by_id(id) {
             Ok(mut doc) => {
@@ -291,6 +385,15 @@ pub enum Value {
 }
 
 /// Generate a unique ID for a document
+///
+/// # Arguments
+///
+/// * `existing_keys` - The existing keys in the corpus
+/// * `doc` - The document
+///
+/// # Returns
+///
+/// A unique ID for the document
 pub fn teanga_id(existing_keys : &Vec<String>, doc : &Document) -> String {
     let mut hasher = Sha256::new();
     for key in doc.content.keys().sorted() {
@@ -312,6 +415,19 @@ pub fn teanga_id(existing_keys : &Vec<String>, doc : &Document) -> String {
     return code[..n].to_string();
 }
 
+/// Generate a new unique ID for a document. 
+/// This is useful when updating a document
+/// as it treats `prev_val` as if it did not occur in existing_keys.
+///
+/// # Arguments
+///
+/// * `prev_val` - The previous value of the ID
+/// * `existing_keys` - The existing keys in the corpus
+/// * `doc` - The document
+///
+/// # Returns
+///
+/// A unique ID for the document
 pub fn teanga_id_update(prev_val : &str, existing_keys: &Vec<String>, doc : &Document) -> String {
     let mut hasher = Sha256::new();
     for key in doc.content.keys().sorted() {
@@ -333,97 +449,177 @@ pub fn teanga_id_update(prev_val : &str, existing_keys: &Vec<String>, doc : &Doc
     return code[..n].to_string();
 }
 
+// TODO: Reorganize these functions into members of corpus
 
-
+/// Read a corpus from a JSON string to a DB corpus
+///
+/// # Arguments
+///
+/// * `s` - The JSON string
+/// * `path` - The path of the DB
 pub fn read_corpus_from_json_string(s : &str, path : &str) -> Result<DiskCorpus, TeangaJsonError> {
     Ok(serialization::read_corpus_from_json_string(s, path)?)
 }
 
+/// Read a corpus from a YAML string to a DB corpus
+///
+/// # Arguments
+///
+/// * `s` - The YAML string
+/// * `path` - The path of the DB
 pub fn read_corpus_from_yaml_string(s : &str, path: &str) -> Result<DiskCorpus, TeangaYamlError> {
     Ok(serialization::read_corpus_from_yaml_string(s, path)?)
 }
 
+/// Read a corpys from a YAML string to a DB corpus
+///
+/// # Arguments
+///
+/// * `yaml` - The path of the YAML file
+/// * `path` - The path of the DB
 pub fn read_corpus_from_yaml_file(yaml : &str, path: &str) -> Result<DiskCorpus, TeangaYamlError> {
     Ok(serialization::read_corpus_from_yaml_file(yaml, path)?)
 }
 
+/// Read a corpus from a YAML URL to a DB corpus
+///
+/// # Arguments
+///
+/// * `url` - The URL of the YAML file
+/// * `path` - The path of the DB
 pub fn read_corpus_from_yaml_url(url : &str, path: &str) -> Result<DiskCorpus, TeangaYamlError> {
     Ok(serialization::read_corpus_from_yaml_url(url, path)?)
 }
 
+/// Write a corpus to a YAML file
+///
+/// # Arguments
+///
+/// * `corpus` - The corpus
+/// * `path` - The path of the YAML file
 pub fn write_corpus_to_yaml(corpus : &DiskCorpus, path : &str) -> Result<(), TeangaYamlError> {
     let f = File::create(path)?;
     Ok(serialization::pretty_yaml_serialize(corpus, f)?)
 }
 
+/// Write a corpus to a JSON file
+///
+/// # Arguments
+///
+/// * `corpus` - The corpus
+/// * `path` - The path of the JSON file
 pub fn write_corpus_to_json(corpus : &DiskCorpus, path : &str) -> Result<(), TeangaJsonError> {
     Ok(serialization::write_corpus_to_json(corpus, path)?)
 }
 
+/// Write a corpus to a JSON string
+///
+/// # Arguments
+///
+/// * `corpus` - The corpus
+///
+/// # Returns
+///
+/// The JSON string
 pub fn write_corpus_to_json_string(corpus : &DiskCorpus) -> Result<String, TeangaJsonError> {
     Ok(serialization::write_corpus_to_json_string(corpus)?)
 }
 
+/// Write a corpus to a YAML string
+///
+/// # Arguments
+///
+/// * `corpus` - The corpus
+///
+/// # Returns
+///
+/// The YAML string
 pub fn write_corpus_to_yaml_string(corpus : &DiskCorpus) -> Result<String, TeangaYamlError> {
     let mut v = Vec::new();
     serialization::pretty_yaml_serialize(corpus, &mut v)?;
     Ok(String::from_utf8(v)?)
 }
 
+/// Read a corpus from a JSON file to a DB corpus
+///
+/// # Arguments
+///
+/// * `json` - The path of the JSON file
+/// * `path` - The path of the DB
 pub fn read_corpus_from_json_file(json : &str, path: &str) -> Result<DiskCorpus, TeangaYamlError> {
     Ok(serialization::read_corpus_from_json_file(json, path)?)
 }
 
+/// An error type for Teanga
 #[derive(Error, Debug)]
 pub enum TeangaError {
+    /// Errors from the DB
     #[error("DB read error: {0}")]
     DBError(#[from] sled::Error),
+    /// Errors from DB Transactions
     #[error("DB transaction error: {0}")]
     DBTXError(#[from] sled::transaction::TransactionError<sled::Error>),
+    /// Errors in serializing data
     #[error("Data error: {0}")]
     DataError(#[from] ciborium::ser::Error<std::io::Error>),
+    /// Errors in deserializing data
     #[error("Data error: {0}")]
     DataError2(#[from] ciborium::de::Error<std::io::Error>),
+    /// Errors due to string encoding
     #[error("Data read error: UTF-8 String could not be decoded")]
     UTFDataError,
+    /// Errors with the data for the model
     #[error("Teanga model error: {0}")]
     ModelError(String),
+    /// Errors in changing an immutable corpus
     #[error("TCF Corpora cannot be mutated")]
     TCFMutError,
+    /// Errors readings a file
     #[error("TCF Read Error: {0}")]
     TCFReadError(#[from] crate::tcf::TCFError),
-    #[error("Document key {0} not in meta")]
-    DocumentKeyError(String),
+    /// A document does not exist in the corpus
     #[error("Document not found")]
     DocumentNotFoundError,
+    /// The layer was not found in the document or meta
     #[error("Layer {0} does not exist")]
     LayerNotFoundError(String),
+    /// An index between layers was out of bounds
     #[error("Indexing error for layer {0} targetting {0}")]
     IndexingError(String, String),
 }
 
 pub type TeangaResult<T> = Result<T, TeangaError>;
 
+/// Errors when reading or writing JSON
 #[derive(Error, Debug)]
 pub enum TeangaJsonError {
+    /// JSON format error
     #[error("JSON error: {0}")]
     JsonError(#[from] serde_json::Error),
+    /// Serde error
     #[error("Serialization error: {0}")]
     SerdeError(#[from] crate::serialization::SerializeError),
+    /// Generic I/O error
     #[error("IO error: {0}")]
     IOError(#[from] std::io::Error),
+    /// Model or other error
     #[error("Teanga error: {0}")]
     TeangaError(#[from] TeangaError)
 }
 
+/// Errors when reading or writing YAML
 #[derive(Error, Debug)]
 pub enum TeangaYamlError {
+    /// YAML format error
     #[error("YAML error: {0}")]
     YamlError(#[from] serde_yaml::Error),
+    /// Generic I/O error
     #[error("IO error: {0}")]
     IOError(#[from] std::io::Error),
+    /// Error decoding a UTF-8 string
     #[error("UTF-8 error: {0}")]
     UTFError(#[from] std::string::FromUtf8Error),
+    /// Errors from Serde
     #[error("Serialization error: {0}")]
     SerdeError(#[from] crate::serialization::SerializeError)
 }

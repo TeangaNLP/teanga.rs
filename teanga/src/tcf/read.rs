@@ -32,16 +32,29 @@ fn read_layer<R : BufRead>(bytes : &mut R, idx : &mut Index, layer_desc : &Layer
 }
 
 
+/// Create a document from its TCF bytes
+///
+/// # Arguments
+///
+/// * `bytes` - The TCF bytes
+/// * `offset` - The offset in the bytes
+/// * `meta_keys` - The keys of the layers in the document in the serialization order
+/// * `meta` - The metadata for the document
+/// * `index` - The index of strings for serialization
+///
+/// # Returns
+///
+/// A new document object
 pub fn bytes_to_doc(bytes : &[u8], offset : usize,
     meta_keys : &Vec<String>,
     meta : &HashMap<String, LayerDesc>,
-    cache : &mut Index) -> TeangaResult<Document> {
+    index : &mut Index) -> TeangaResult<Document> {
     let mut layers = Vec::new();
     let mut i = offset;
     for key in meta_keys.iter() {
         if bytes[i] != TCF_EMPTY_LAYER {
             let (layer, n) = bytes_to_layer(&bytes[i..], 
-                cache, meta.get(key).ok_or_else(|| TeangaError::DocumentKeyError(key.clone()))?)?;
+                index, meta.get(key).ok_or_else(|| TeangaError::LayerNotFoundError(key.clone()))?)?;
             layers.push((key.clone(), layer));
             i += n;
         } else {
@@ -53,6 +66,7 @@ pub fn bytes_to_doc(bytes : &[u8], offset : usize,
 
 
 
+/// Errors in reading a document
 #[derive(Error, Debug)]
 pub enum ReadDocError {
     #[error("Model error: {0}")]
@@ -66,13 +80,25 @@ pub enum ReadDocError {
 }
 
 
+/// Read a document from a TCF file
+///
+/// # Arguments
+///
+/// * `input` - The input stream
+/// * `meta_keys` - The keys of the layers in the document in the serialization order
+/// * `meta` - The metadata for the document
+/// * `index` - The index of strings for serialization
+///
+/// # Returns
+///
+/// A new document object
 pub fn read_doc<R : BufRead>(input : &mut R, meta_keys : &Vec<String>,
-    meta : &HashMap<String, LayerDesc>, cache : &mut Index) -> Result<Option<Document>, ReadDocError> {
+    meta : &HashMap<String, LayerDesc>, index : &mut Index) -> Result<Option<Document>, ReadDocError> {
     let mut layers = Vec::new();
     for key in meta_keys.iter() {
         let layer_desc = meta.get(key)
             .ok_or_else(|| ReadDocError::DocumentKeyError(key.clone()))?;
-        match read_layer(input, cache, layer_desc)? {
+        match read_layer(input, index, layer_desc)? {
             ReadLayerResult::Layer(layer) => {
                 layers.push((key.clone(), layer));
             },
@@ -87,6 +113,7 @@ pub fn read_doc<R : BufRead>(input : &mut R, meta_keys : &Vec<String>,
 }
 
 
+/// An error for reading a TCF file
 #[derive(Error, Debug)]
 pub enum TCFReadError {
     #[error("IO error: {0}")]
@@ -100,6 +127,12 @@ pub enum TCFReadError {
 }
 
 
+/// Read a TCF file
+///
+/// # Arguments
+///
+/// * `input` - The input stream
+/// * `corpus` - The corpus to read into
 pub fn read_tcf<R: std::io::BufRead, C: WriteableCorpus>(
     input : &mut R, corpus : &mut C) -> Result<(), TCFReadError> {
     let mut meta_bytes = vec![0u8; 4];

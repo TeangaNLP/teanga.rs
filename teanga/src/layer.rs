@@ -1,4 +1,6 @@
-/// This module contains the definition of the Layer and LayerDesc structs, as well as the LayerType and DataType enums.
+//! Layers in a document
+//!
+//! This module contains the definition of the Layer and LayerDesc structs, as well as the LayerType and DataType enums.
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
@@ -11,6 +13,15 @@ use crate::Document;
 
 /// Traits for converting a value into a Layer
 pub trait IntoLayer {
+    /// Convert the value into a Layer
+    ///
+    /// # Arguments
+    ///
+    /// * `meta` - The metadata for the layer
+    ///
+    /// # Returns
+    ///
+    /// The converted layer
     fn into_layer(self, meta : &LayerDesc) -> TeangaResult<Layer>;
 }
 
@@ -137,18 +148,25 @@ impl IntoLayer for Vec<(u32, u32, u32, &'static str)> {
 #[derive(Debug,Clone,Serialize,Deserialize,Default,PartialEq)]
 /// A layer description
 pub struct LayerDesc {
+    /// The type of the layer
     #[serde(rename = "type")]
     pub layer_type: LayerType,
+    /// The name of the base layer for this layer
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base: Option<String>,
+    /// The data type for this layer
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<DataType>,
+    /// The link types for this layer
     #[serde(skip_serializing_if = "Option::is_none")]
     pub link_types: Option<Vec<String>>,
+    /// The target layer for this layer if it is a link layer
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
+    /// The default values for this layer
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<Layer>,
+    /// The metadata for this layer
     #[serde(default)]
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub meta: HashMap<String, Value>, 
@@ -181,6 +199,7 @@ impl LayerDesc {
     }
 }
 
+/// A layer in a document
 #[derive(Debug,Clone,PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Layer {
@@ -226,6 +245,18 @@ impl Layer {
         }
     }
 
+    /// Get the indexes for the layer relative to a base layer
+    ///
+    /// # Arguments
+    ///
+    /// * `layer_name` - The name of this layer
+    /// * `target_layer` - The name of the layer to get the indexes in
+    /// * `doc` - The document to get the indexes from
+    /// * `meta` - The metadata for the document
+    ///
+    /// # Returns
+    ///
+    /// A vector of indexes for the target layer
     pub fn indexes(&self, layer_name : &str, target_layer: &str, doc : &Document, 
         meta : &HashMap<String, LayerDesc>) -> TeangaResult<Vec<(usize, usize)>> {
         let layer_desc = meta.get(layer_name).ok_or_else(
@@ -329,6 +360,14 @@ impl Layer {
     }
 
     /// Get the data part of the layer
+    ///
+    /// # Arguments
+    ///
+    /// * `layer_desc` - The metadata for the layer
+    ///
+    /// # Returns
+    ///
+    /// The data of this layer
     pub fn data(&self, layer_desc : &LayerDesc) -> Vec<TeangaData> {
        match self {
            Layer::Characters(s) => vec![TeangaData::None; s.len()],
@@ -405,13 +444,19 @@ impl Layer {
     }
 }
 
+/// The types of layers supported by Teanga
 #[allow(non_camel_case_types)]
 #[derive(Debug,Clone,PartialEq,Serialize,Deserialize)]
 pub enum LayerType {
+    /// A plain text layer consisting of a single Unicode String
     characters,
+    /// A sequence of data in one-to-one correspondence with the base layer
     seq,
+    /// A division of the base layer into non-overlapping segments
     div,
+    /// A reference to individual elements in the base layer
     element,
+    /// A reference to spans of text in the base layer
     span
 }
 
@@ -433,10 +478,14 @@ impl Default for LayerType {
     }
 }
 
+/// The types of data supported by Teanga
 #[derive(Debug,Clone,PartialEq)]
 pub enum DataType {
+    /// Plain string data
     String,
+    /// A value for a set of enumerated values
     Enum(Vec<String>),
+    /// A link to another annotation in this layer or another layer in the documnent
     Link
 }
 
@@ -498,6 +547,7 @@ impl Display for DataType {
     }
 }
 
+/// A data value in a Teanga document
 #[derive(Debug,Clone,PartialEq,Eq,Hash,PartialOrd,Ord)]
 pub enum TeangaData {
     None,
