@@ -167,7 +167,7 @@ impl ConvertCommand {
 
         match self.input_format.guess(&self.input) {
             Format::JSON => {
-                teanga::serialization::read_json(&mut input, &mut corpus, false)
+                teanga::serialization::read_json(&mut input, &mut corpus)
                     .map_err(|e| format!("Failed to read JSON: {}", e))?;
             }
             Format::JSONL => {
@@ -182,7 +182,7 @@ impl ConvertCommand {
                 }
             }
             Format::YAML => {
-                teanga::serialization::read_yaml(&mut input, &mut corpus, false)
+                teanga::serialization::read_yaml(&mut input, &mut corpus)
                     .map_err(|e| format!("Failed to read YAML: {}", e))?;
             }
             Format::TCF => {

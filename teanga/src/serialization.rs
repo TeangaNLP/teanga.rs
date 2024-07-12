@@ -1,5 +1,5 @@
 //! Serialization support for Teanga
-use crate::{Corpus, DiskCorpus, WriteableCorpus, LayerDesc, Layer, TransactionCorpus, TeangaJsonError, Document};
+use crate::{Corpus, WriteableCorpus, LayerDesc, Layer, TeangaJsonError, Document};
 use itertools::Itertools;
 use serde::Deserializer;
 use serde::Serialize;
@@ -7,14 +7,10 @@ use serde::de::Visitor;
 use serde::ser::{Serializer, SerializeMap};
 use std::cmp::min;
 use std::collections::HashMap;
-use std::fs::File;
 use std::io::BufRead;
 use std::io::Read;
 use std::io::Write;
-use std::path::Path;
 use thiserror::Error;
-use reqwest;
-use flate2;
 
 struct TeangaVisitor2<'a, C : WriteableCorpus>(&'a mut C, bool);
 
@@ -129,10 +125,20 @@ pub fn pretty_yaml_serialize<W : Write, C: Corpus>(corpus: &C, mut writer: W) ->
 ///
 /// * `reader` - The reader to read from
 /// * `corpus` - The corpus to read into
-/// * `meta_only` - Whether to read only the metadata
-pub fn read_json<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C, meta_only : bool) -> Result<(), serde_json::Error> {
+pub fn read_json<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -> Result<(), serde_json::Error> {
     let mut deserializer = serde_json::Deserializer::from_reader(reader);
-    deserializer.deserialize_any(TeangaVisitor2(corpus, meta_only))
+    deserializer.deserialize_any(TeangaVisitor2(corpus, false))
+}
+
+/// Read only the metadata from a JSON file
+///
+/// # Arguments
+///
+/// * `reader` - The reader to read from
+/// * `corpus` - The corpus to read into
+pub fn read_json_meta<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -> Result<(), serde_json::Error> {
+    let mut deserializer = serde_json::Deserializer::from_reader(reader);
+    deserializer.deserialize_any(TeangaVisitor2(corpus, true))
 }
 
 /// Read a corpus from YAML
@@ -142,9 +148,20 @@ pub fn read_json<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C, m
 /// * `reader` - The reader to read from
 /// * `corpus` - The corpus to read into
 /// * `meta_only` - Whether to read only the metadata
-pub fn read_yaml<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C, meta_only : bool) -> Result<(), serde_yaml::Error> {
+pub fn read_yaml<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -> Result<(), serde_yaml::Error> {
     let deserializer = serde_yaml::Deserializer::from_reader(reader);
-    deserializer.deserialize_any(TeangaVisitor2(corpus, meta_only))
+    deserializer.deserialize_any(TeangaVisitor2(corpus, false))
+}
+
+// Read only the metadata from a YAML file
+//
+// # Arguments
+//
+// * `reader` - The reader to read from
+// * `corpus` - The corpus to read into
+pub fn read_yaml_meta<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -> Result<(), serde_yaml::Error> {
+    let deserializer = serde_yaml::Deserializer::from_reader(reader);
+    deserializer.deserialize_any(TeangaVisitor2(corpus, true))
 }
 
 /// Read a corpus from JSONL. That is a file with one JSON document per line. 
@@ -216,71 +233,6 @@ pub fn write_jsonl<W : Write, C : Corpus>(mut writer : W, corpus : &C) -> Result
     Ok(())
 }
 
-pub fn read_corpus_from_json_string(s: &str, path : &str) -> Result<DiskCorpus, serde_json::Error> {
-    let mut deserializer = serde_json::Deserializer::from_str(s);
-    let mut corpus = TransactionCorpus::new(path).map_err(serde::de::Error::custom)?;
-    deserializer.deserialize_any(TeangaVisitor2(&mut corpus, false))?;
-    Ok(corpus.commit().map_err(serde::de::Error::custom)?)
-}
-
-pub fn read_corpus_from_json_file<P: AsRef<Path>>(json_file : P, path: &str) -> Result<DiskCorpus, SerializeError> {
-    let file = File::open(json_file)?;
-    let mut corpus = TransactionCorpus::new(path)?;
-    let mut deserializer = serde_json::Deserializer::from_reader(file);
-    deserializer.deserialize_any(TeangaVisitor2(&mut corpus, false))?;
-    Ok(corpus.commit()?)
-}
-
-pub fn read_corpus_from_yaml_string(s: &str, path : &str) -> Result<DiskCorpus, SerializeError> {
-    let deserializer = serde_yaml::Deserializer::from_str(s);
-    let mut corpus = TransactionCorpus::new(path)?;
-    deserializer.deserialize_any(TeangaVisitor2(&mut corpus, false))?;
-    Ok(corpus.commit()?)
-}
-
-pub fn read_corpus_from_yaml_file<P: AsRef<Path>>(yaml_file : P, path: &str) -> Result<DiskCorpus, SerializeError> {
-    let file = File::open(yaml_file)?;
-    let mut corpus = TransactionCorpus::new(path)?;
-    let deserializer = serde_yaml::Deserializer::from_reader(file);
-    deserializer.deserialize_any(TeangaVisitor2(&mut corpus, false))?;
-    Ok(corpus.commit()?)
-}
-
-pub fn read_corpus_from_yaml_url(url: &str, path: &str) -> Result<DiskCorpus, SerializeError> {
-    let response = reqwest::blocking::get(url)?;
-    let mut corpus = TransactionCorpus::new(path)?;
-    if url.ends_with(".gz") {
-        let mut decompressor = flate2::read::GzDecoder::new(response);
-        let deserializer = serde_yaml::Deserializer::from_reader(&mut decompressor);
-        deserializer.deserialize_any(TeangaVisitor2(&mut corpus, false))?;
-    } else {
-        let deserializer = serde_yaml::Deserializer::from_reader(response);
-        deserializer.deserialize_any(TeangaVisitor2(&mut corpus, false))?;
-    }
-    Ok(corpus.commit()?)
-}
-
-pub fn write_corpus_to_json<P: AsRef<Path>, C : Corpus>(corpus: &C, path: P) -> Result<(), serde_json::Error> 
-    where C::Content : Serialize {
-    let mut file = File::create(path)
-        .expect("Could not create file");
-    let mut ser = serde_json::Serializer::new(&mut file);
-    corpus_serialize(corpus, &mut ser)
-}
-
-pub fn write_corpus_to_json_string<C : Corpus>(corpus: &C) -> Result<String, SerializeError> 
-    where C::Content : Serialize {
-    let mut ser = serde_json::Serializer::new(Vec::new());
-    corpus_serialize(corpus, &mut ser)?;
-    Ok(String::from_utf8(ser.into_inner())?)
-}
-
-#[cfg(test)] // Only used for testing ATM
-fn write_corpus_to_yaml_file(corpus: &DiskCorpus, mut file : File) -> Result<(), serde_yaml::Error> {
-    let mut ser = serde_yaml::Serializer::new(&mut file);
-    corpus_serialize(corpus, &mut ser)
-}
-
 /// A serialization error
 #[derive(Error,Debug)]
 pub enum SerializeError {
@@ -302,16 +254,12 @@ pub enum SerializeError {
     /// An error in decoding UTF-8
     #[error("UTF8 error: {0}")]
     Utf8(#[from] std::string::FromUtf8Error),
-    /// An error reading from a URL
-    #[error("Reqwest error: {0}")]
-    Reqwest(#[from] reqwest::Error),
-    //#[error("Flate2 error: {0}")]
-    //Flate2(#[from] flate2::Error),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SimpleCorpus;
 
     #[test]
     fn test_deserialize_yaml() {
@@ -326,9 +274,8 @@ ecWc:
     text: This is an example
     tokens: [[0, 4], [5, 7], [8, 10], [11, 18]]
 ";
-        let file = tempfile::tempdir().expect("Cannot create temp folder")
-            .path().to_str().unwrap().to_owned();
-        read_corpus_from_yaml_string(doc, &file).unwrap();
+        let mut corpus = SimpleCorpus::new();
+        read_yaml(doc.as_bytes(), &mut corpus).unwrap();
     }
 
     #[test]
@@ -368,16 +315,13 @@ ecWc:
         ]
     }
 }"#;
-        let file = tempfile::tempdir().expect("Cannot create temp folder")
-            .path().to_str().unwrap().to_owned();
-        read_corpus_from_json_string(doc, &file).unwrap();
+        let mut corpus = SimpleCorpus::new();
+        read_json(doc.as_bytes(), &mut corpus).unwrap();
     }
 
     #[test]
     fn test_serialize_yaml() {
-        let file = tempfile::tempdir().expect("Cannot create temp folder")
-            .path().to_str().unwrap().to_owned();
-        let mut corpus = DiskCorpus::new(&file).expect("Cannot load corpus");
+        let mut corpus = SimpleCorpus::new();
         corpus.add_layer_meta("text".to_string(), crate::LayerType::characters,
            None, None, None, None, None, HashMap::new()).unwrap();
         corpus.add_layer_meta("tokens".to_string(), crate::LayerType::span,
@@ -385,15 +329,13 @@ ecWc:
         let doc = HashMap::from_iter(vec![("text".to_string(), Layer::Characters("This is an example".to_string())),
                                            ("tokens".to_string(), Layer::L2(vec![(0, 4), (5, 7), (8, 10), (11, 18)]))]);
         corpus.add_doc(doc).unwrap();
-        let outfile = tempfile::tempfile().expect("Cannot create temp file");
-        write_corpus_to_yaml_file(&corpus, outfile).unwrap();
+        let mut out = Vec::new();
+        write_yaml(&mut out, &corpus).unwrap();
     }
 
     #[test]
     fn test_pretty_yaml() {
-        let file = tempfile::tempdir().expect("Cannot create temp folder")
-            .path().to_str().unwrap().to_owned();
-        let mut corpus = DiskCorpus::new(&file).expect("Cannot load corpus");
+        let mut corpus = SimpleCorpus::new();
         corpus.add_layer_meta("text".to_string(), crate::LayerType::characters,
            None, None, None, None, None, HashMap::new()).unwrap();
         corpus.add_layer_meta("tokens".to_string(), crate::LayerType::span,
@@ -409,9 +351,9 @@ ecWc:
  
     #[test]
     fn test_1() {
-        let file = tempfile::tempdir().expect("Cannot create temp folder")
-            .path().to_str().unwrap().to_owned();
-        read_corpus_from_yaml_string("_meta:\n  text:\n    type: characters\nKjco:\n   text: This is a document.\n", &file).unwrap();
+        let mut corpus = SimpleCorpus::new();
+        read_yaml("_meta:\n  text:\n    type: characters\nKjco:\n   text: This is a document.\n".as_bytes(), 
+            &mut corpus).unwrap();
     }
 
     #[test]
@@ -423,7 +365,7 @@ ecWc:
     type: div
     base: characters".to_string();
  
-        read_yaml(data.as_bytes(), &mut TransactionCorpus::new("test").unwrap(), true).unwrap();
+        read_yaml_meta(data.as_bytes(), &mut SimpleCorpus::new()).unwrap();
     }
 }
 

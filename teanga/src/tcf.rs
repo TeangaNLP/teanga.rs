@@ -10,7 +10,6 @@ mod tcf_index;
 mod type_index;
 mod write;
 
-//pub use tcf::{write_tcf, read_tcf, write_tcf_header, write_tcf_doc, doc_content_to_bytes, bytes_to_doc, Index, IndexResult};
 pub use write::{write_tcf, write_tcf_header, write_tcf_doc, doc_content_to_bytes, TCFWriteError};
 pub use read::{read_tcf, bytes_to_doc, TCFReadError};
 pub use index::{Index, IndexResult};

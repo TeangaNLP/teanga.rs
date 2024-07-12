@@ -24,7 +24,6 @@ use base64::engine::general_purpose::STANDARD;
 use itertools::Itertools;
 use serde::{Serialize,Deserialize};
 use thiserror::Error;
-use std::fs::File;
 
 pub mod disk_corpus;
 pub mod document;
@@ -42,6 +41,7 @@ pub use transaction_corpus::TransactionCorpus;
 pub use layer::{IntoLayer, Layer, LayerDesc, DataType, LayerType, TeangaData};
 pub use layer_builder::build_layer;
 pub use query::Query;
+pub use serialization::{read_json, read_yaml, write_json, write_yaml};
 pub use tcf::{write_tcf, read_tcf, write_tcf_header, write_tcf_doc, doc_content_to_bytes, bytes_to_doc, Index, IndexResult, TCFReadError, TCFWriteError};
 pub use match_condition::{TextMatchCondition, DataMatchCondition};
 
@@ -257,7 +257,7 @@ impl SimpleCorpus {
 
     /// Read the metadata from a YAML file
     pub fn read_yaml_header<'de, R: std::io::Read>(&mut self, r: R) -> Result<(), TeangaYamlError> {
-        Ok(crate::serialization::read_yaml(r, self, true)?)
+        Ok(crate::serialization::read_yaml_meta(r, self)?)
     }
 
 }
@@ -447,107 +447,6 @@ pub fn teanga_id_update(prev_val : &str, existing_keys: &Vec<String>, doc : &Doc
         n += 1;
     }
     return code[..n].to_string();
-}
-
-// TODO: Reorganize these functions into members of corpus
-
-/// Read a corpus from a JSON string to a DB corpus
-///
-/// # Arguments
-///
-/// * `s` - The JSON string
-/// * `path` - The path of the DB
-pub fn read_corpus_from_json_string(s : &str, path : &str) -> Result<DiskCorpus, TeangaJsonError> {
-    Ok(serialization::read_corpus_from_json_string(s, path)?)
-}
-
-/// Read a corpus from a YAML string to a DB corpus
-///
-/// # Arguments
-///
-/// * `s` - The YAML string
-/// * `path` - The path of the DB
-pub fn read_corpus_from_yaml_string(s : &str, path: &str) -> Result<DiskCorpus, TeangaYamlError> {
-    Ok(serialization::read_corpus_from_yaml_string(s, path)?)
-}
-
-/// Read a corpys from a YAML string to a DB corpus
-///
-/// # Arguments
-///
-/// * `yaml` - The path of the YAML file
-/// * `path` - The path of the DB
-pub fn read_corpus_from_yaml_file(yaml : &str, path: &str) -> Result<DiskCorpus, TeangaYamlError> {
-    Ok(serialization::read_corpus_from_yaml_file(yaml, path)?)
-}
-
-/// Read a corpus from a YAML URL to a DB corpus
-///
-/// # Arguments
-///
-/// * `url` - The URL of the YAML file
-/// * `path` - The path of the DB
-pub fn read_corpus_from_yaml_url(url : &str, path: &str) -> Result<DiskCorpus, TeangaYamlError> {
-    Ok(serialization::read_corpus_from_yaml_url(url, path)?)
-}
-
-/// Write a corpus to a YAML file
-///
-/// # Arguments
-///
-/// * `corpus` - The corpus
-/// * `path` - The path of the YAML file
-pub fn write_corpus_to_yaml(corpus : &DiskCorpus, path : &str) -> Result<(), TeangaYamlError> {
-    let f = File::create(path)?;
-    Ok(serialization::pretty_yaml_serialize(corpus, f)?)
-}
-
-/// Write a corpus to a JSON file
-///
-/// # Arguments
-///
-/// * `corpus` - The corpus
-/// * `path` - The path of the JSON file
-pub fn write_corpus_to_json(corpus : &DiskCorpus, path : &str) -> Result<(), TeangaJsonError> {
-    Ok(serialization::write_corpus_to_json(corpus, path)?)
-}
-
-/// Write a corpus to a JSON string
-///
-/// # Arguments
-///
-/// * `corpus` - The corpus
-///
-/// # Returns
-///
-/// The JSON string
-pub fn write_corpus_to_json_string(corpus : &DiskCorpus) -> Result<String, TeangaJsonError> {
-    Ok(serialization::write_corpus_to_json_string(corpus)?)
-}
-
-/// Write a corpus to a YAML string
-///
-/// # Arguments
-///
-/// * `corpus` - The corpus
-///
-/// # Returns
-///
-/// The YAML string
-pub fn write_corpus_to_yaml_string(corpus : &DiskCorpus) -> Result<String, TeangaYamlError> {
-    let mut v = Vec::new();
-    serialization::pretty_yaml_serialize(corpus, &mut v)?;
-    Ok(String::from_utf8(v)?)
-}
-
-/// Read a corpus from a JSON file to a DB corpus
-///
-/// # Arguments
-///
-/// * `json` - The path of the JSON file
-/// * `path` - The path of the DB
-pub fn read_corpus_from_json_file(json : &str, path: &str) -> Result<DiskCorpus, TeangaYamlError> {
-    Ok(serialization::read_corpus_from_json_file(json, path)?)
 }
 
 /// An error type for Teanga

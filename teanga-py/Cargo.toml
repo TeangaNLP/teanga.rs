@@ -28,6 +28,7 @@ serde_yaml = "0.9.25"
 thiserror = "1.0.24"
 ciborium = "0.2.1"
 regex = "1.10.5"
+reqwest = "0.12.5"
 
 [dev-dependencies]
 tempfile = "3.2.0"

@@ -62,11 +62,11 @@ impl TransactionCorpus {
     }
 
     pub fn read_yaml<'de, R: Read>(&mut self, r: R) -> Result<(), TeangaYamlError> {
-        Ok(crate::serialization::read_yaml(r, self, false)?)
+        Ok(crate::serialization::read_yaml(r, self)?)
     }
 
     pub fn read_json<'de, R: Read>(&mut self, r: R) -> Result<(), TeangaJsonError> {
-        Ok(crate::serialization::read_json(r, self, false)?)
+        Ok(crate::serialization::read_json(r, self)?)
     }
 
     pub fn read_jsonl<'de, R: Read + BufRead>(&mut self, r: R) -> Result<(), TeangaJsonError> {
@@ -74,7 +74,7 @@ impl TransactionCorpus {
     }
 
     pub fn read_yaml_header<'de, R: Read>(&mut self, r: R) -> Result<(), TeangaYamlError> {
-        Ok(crate::serialization::read_yaml(r, self, true)?)
+        Ok(crate::serialization::read_yaml_meta(r, self)?)
     }
 }
 
