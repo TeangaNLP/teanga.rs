@@ -5,13 +5,21 @@ use std::io::Write;
 use thiserror::Error;
 use crate::{TeangaResult, TeangaError, DocumentContent, IntoLayer, Corpus};
 
+use crate::tcf::TCFConfig;
+use crate::tcf::StringCompressionMethod;
 use crate::tcf::TCFResult;
 use crate::tcf::index::Index;
 use crate::tcf::layer::TCFLayer;
 use crate::tcf::layer::TCF_EMPTY_LAYER;
+use crate::tcf::string::StringCompression;
+use crate::tcf::string::ShocoCompression;
+use crate::tcf::string::SupportedStringCompression;
+use crate::tcf::string::write_shoco_model;
 
-fn layer_to_bytes(layer : &Layer, idx : &mut Index, ld : &LayerDesc) -> TCFResult<Vec<u8>> {
-    Ok(TCFLayer::from_layer(layer, idx, ld)?.into_bytes())
+
+fn layer_to_bytes<C : StringCompression>(layer : &Layer, idx : &mut Index, 
+    ld : &LayerDesc, c : &C) -> TCFResult<Vec<u8>> {
+    Ok(TCFLayer::from_layer(layer, idx, ld, c)?.into_bytes(c))
 }
 
 
@@ -23,16 +31,18 @@ fn layer_to_bytes(layer : &Layer, idx : &mut Index, ld : &LayerDesc) -> TCFResul
 /// * `meta_keys` - The keys of the layers in the document in serialization order
 /// * `meta` - The metadata for the document
 /// * `index` - The index for the document
-pub fn doc_content_to_bytes<DC: DocumentContent<L>, L : IntoLayer>(content : DC,
-    meta_keys : &Vec<String>,
-    meta : &HashMap<String, LayerDesc>,
-    index : &mut Index) -> TeangaResult<Vec<u8>> {
+pub fn doc_content_to_bytes<DC: DocumentContent<L>, L : IntoLayer, C : StringCompression>
+    (content : DC,
+     meta_keys : &Vec<String>,
+     meta : &HashMap<String, LayerDesc>,
+     index : &mut Index,
+     c : &C) -> TeangaResult<Vec<u8>> {
     let content = content.as_map(meta)?;
     let mut out = Vec::new();
     for key in meta_keys.iter() {
         if let Some(layer) = content.get(key) {
             let b = layer_to_bytes(&layer,
-                index, meta.get(key).unwrap())?;
+                index, meta.get(key).unwrap(), c)?;
             out.extend(b.as_slice());
         } else {
             // TCF uses the first byte to identify the layer type, starting
@@ -60,17 +70,27 @@ pub enum TCFWriteError {
 /// * `out` - The output stream
 /// * `corpus` - The corpus to write
 pub fn write_tcf<W : Write, C: Corpus>(
-    mut out : W, corpus : &C) -> Result<(), TCFWriteError> {
-    let mut meta_bytes : Vec<u8> = Vec::new();
-    into_writer(corpus.get_meta(), &mut meta_bytes).unwrap();
-    out.write((meta_bytes.len() as u32).to_be_bytes().as_ref())?;
-    out.write(meta_bytes.as_slice())?;
+    out : &mut W, corpus : &C) -> Result<(), TCFWriteError> {
+    write_tcf_with_config(out, corpus, &TCFConfig::default())
+}
+
+/// Write the corpus to TCF with a configuration
+///
+/// # Arguments
+///
+/// * `out` - The output stream
+/// * `corpus` - The corpus to write
+/// * `config` - The configuration for the TCF
+pub fn write_tcf_with_config<W : Write, C: Corpus>(
+    out : &mut W, corpus : &C, config : &TCFConfig) -> Result<(), TCFWriteError> {
+    write_tcf_header(out, corpus.get_meta())?;
+    let string_compression = write_tcf_config(out, &mut corpus.iter_docs(), config)?;
     let mut index = Index::new();
     let mut meta_keys : Vec<String> = corpus.get_meta().keys().cloned().collect();
     meta_keys.sort();
     for doc in corpus.iter_docs() {
-        out.write(doc_content_to_bytes(doc?,
-                &meta_keys, corpus.get_meta(), &mut index)?.as_slice())?;
+        write_tcf_doc(out, doc?,
+                &mut index, &meta_keys, corpus, &string_compression)?;
     }
     Ok(())
 }
@@ -88,17 +108,50 @@ pub fn write_tcf<W : Write, C: Corpus>(
 ///
 /// The index and the keys of the layers in the corpus. These are then required
 /// to call `write_tcf_doc` for each document
-pub fn write_tcf_header<W : Write, C : Corpus>(
-    mut out : W, corpus : &C) -> Result<(Index, Vec<String>), TCFWriteError> {
+pub fn write_tcf_header<W : Write>(
+    out : &mut W, meta : &HashMap<String, LayerDesc>) -> Result<(Index, Vec<String>), TCFWriteError> {
     let mut meta_bytes : Vec<u8> = Vec::new();
-    into_writer(corpus.get_meta(), &mut meta_bytes).unwrap();
+    into_writer(meta, &mut meta_bytes).unwrap();
     out.write((meta_bytes.len() as u32).to_be_bytes().as_ref())?;
     out.write(meta_bytes.as_slice())?;
     let index = Index::new();
-    let mut meta_keys : Vec<String> = corpus.get_meta().keys().cloned().collect();
+    let mut meta_keys : Vec<String> = meta.keys().cloned().collect();
     meta_keys.sort();
     Ok((index, meta_keys))
 }
+
+/// Write the TCF configuration
+///
+/// # Arguments
+///
+/// * `out` - The output stream
+/// * `corpus` - The corpus to write
+/// * `config` - The configuration for the TCF
+pub fn write_tcf_config<'a, W : Write>(
+    out : &mut W, docs : &mut Box<dyn Iterator<Item=TeangaResult<Document>> + 'a>, config : &TCFConfig) -> Result<SupportedStringCompression, TCFWriteError> {
+    let c = match config.string_compression {
+        StringCompressionMethod::None => {
+            out.write(&[0u8])?;
+            SupportedStringCompression::None
+        },
+        StringCompressionMethod::Smaz => {
+            out.write(&[1u8])?;
+            SupportedStringCompression::Smaz
+        },
+        StringCompressionMethod::ShocoDefault => {
+            out.write(&[2u8])?;
+            SupportedStringCompression::Shoco(ShocoCompression::default())
+        },
+        StringCompressionMethod::GenerateShocoModel(size) => {
+            out.write(&[3u8])?;
+            let model = ShocoCompression::from_corpus(docs, size)?;
+            write_shoco_model(out, &model)?;
+            SupportedStringCompression::Shoco(model)
+        }
+    };
+    Ok(c)
+}
+
 
 /// Write a single document as TCF.
 ///
@@ -111,9 +164,10 @@ pub fn write_tcf_header<W : Write, C : Corpus>(
 /// * `index` - The index for the document
 /// * `meta_keys` - The keys of the layers in the document in serialization order
 /// * `corpus` - The corpus to write
-pub fn write_tcf_doc<W : Write, C : Corpus>(
-    mut out : W, doc : Document, index : &mut Index, meta_keys: &Vec<String>, corpus : &C) -> Result<(), TCFWriteError> {
-    out.write(doc_content_to_bytes(doc, &meta_keys, corpus.get_meta(), index)?.as_slice())?;
+pub fn write_tcf_doc<W : Write, C : Corpus, S: StringCompression>(
+    out : &mut W, doc : Document, index : &mut Index, meta_keys: &Vec<String>, 
+    corpus : &C, s :&S) -> Result<(), TCFWriteError> {
+    out.write(doc_content_to_bytes(doc, &meta_keys, corpus.get_meta(), index, s)?.as_slice())?;
     Ok(())
 }
 

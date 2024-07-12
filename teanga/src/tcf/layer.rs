@@ -1,7 +1,6 @@
 /// Teanga Compressed Format
 use crate::{Layer, Value, LayerDesc};
 use std::collections::HashMap;
-use smaz;
 use ciborium::{into_writer, from_reader};
 use std::io::BufRead;
 
@@ -10,6 +9,7 @@ use crate::tcf::tcf_index::TCFIndex;
 use crate::tcf::data::TCFData;
 use crate::tcf::index::Index;
 use crate::tcf::read::ReadLayerResult;
+use crate::tcf::string::StringCompression;
 
 
 pub static TCF_EMPTY_LAYER : u8 = 0b1111_1111;
@@ -27,9 +27,9 @@ pub enum TCFLayer {
 }
 
 impl TCFLayer {
-    pub fn from_layer(l : &Layer, idx : &mut Index, ld : &LayerDesc) -> TCFResult<TCFLayer> {
+    pub fn from_layer<S : StringCompression>(l : &Layer, idx : &mut Index, ld : &LayerDesc, s : &S) -> TCFResult<TCFLayer> {
         match l {
-            Layer::Characters(c) => Ok(TCFLayer::Characters(smaz::compress(&c.as_bytes()))),
+            Layer::Characters(c) => Ok(TCFLayer::Characters(s.compress(c))),
             Layer::L1(l) => {
                 if all_ascending(l) {
                     Ok(TCFLayer::L1(TCFIndex::from_vec(&to_delta(l.clone())), true))
@@ -164,11 +164,10 @@ impl TCFLayer {
         }
     }
 
-    pub fn to_layer(self, index : &mut Index, ld : &LayerDesc) -> Layer {
+    pub fn to_layer<S : StringCompression>(self, index : &mut Index, ld : &LayerDesc, s : &S) -> Layer {
         match self {
             TCFLayer::Characters(c) => {
-                let d = smaz::decompress(&c).unwrap();
-                let s : String = std::str::from_utf8(d.as_slice()).unwrap().to_string();
+                let s = s.decompress(&c).unwrap();
                 Layer::Characters(s)
             },
             TCFLayer::L1(l, delta) => {
@@ -223,7 +222,7 @@ impl TCFLayer {
         }
     }
 
-    pub fn into_bytes(self) -> Vec<u8> {
+    pub fn into_bytes<C : StringCompression>(self, c : &C) -> Vec<u8> {
         match self {
             TCFLayer::Characters(c) => {
                 let mut d = Vec::new();
@@ -276,7 +275,7 @@ impl TCFLayer {
             TCFLayer::LS(l) => {
                 let mut d = Vec::new();
                 d.push(11);
-                d.extend(l.into_bytes());
+                d.extend(l.into_bytes(c));
                 d
             }
             TCFLayer::L1S(l1, l2, delta) => {
@@ -287,7 +286,7 @@ impl TCFLayer {
                     d.push(13);
                 }
                 d.extend(l1.into_bytes());
-                d.extend(l2.into_bytes());
+                d.extend(l2.into_bytes(c));
                 d
             }
             TCFLayer::L2S(l1, l2, l3, delta, diff) => {
@@ -303,7 +302,7 @@ impl TCFLayer {
                 }
                 d.extend(l1.into_bytes());
                 d.extend(l2.into_bytes());
-                d.extend(l3.into_bytes());
+                d.extend(l3.into_bytes(c));
                 d
             }
             TCFLayer::L3S(l1, l2, l3, l4, delta, diff) => {
@@ -320,7 +319,7 @@ impl TCFLayer {
                 d.extend(l1.into_bytes());
                 d.extend(l2.into_bytes());
                 d.extend(l3.into_bytes());
-                d.extend(l4.into_bytes());
+                d.extend(l4.into_bytes(c));
                 d
             }
             TCFLayer::MetaLayer(l) => {
@@ -335,7 +334,8 @@ impl TCFLayer {
         }
     }
 
-    pub fn from_bytes(bytes : &[u8], offset : usize, layer_desc : &LayerDesc) -> TCFResult<(TCFLayer, usize)> {
+    pub fn from_bytes<S : StringCompression>(bytes : &[u8], offset : usize, 
+        layer_desc : &LayerDesc, s : &S) -> TCFResult<(TCFLayer, usize)> {
         match bytes[offset] {
             0 => {
                 let len = u16::from_be_bytes([bytes[offset + 1], bytes[offset + 2]]) as usize;
@@ -394,70 +394,70 @@ impl TCFLayer {
                 Ok((TCFLayer::L3(l1, l2, l3, false, false), offset + len1 + len2 + len3 + 1))
             },
             11 => {
-                let (l, len) = TCFData::from_bytes(&bytes[offset + 1..], layer_desc)?;
+                let (l, len) = TCFData::from_bytes(&bytes[offset + 1..], layer_desc, s)?;
                 Ok((TCFLayer::LS(l), offset + len + 1))
 
             },
             12 => {
                 let (l1, len1) = TCFIndex::from_bytes(&bytes[offset + 1..])?;
-                let (l2, len2) = TCFData::from_bytes(&bytes[offset + 1 + len1..], layer_desc)?;
+                let (l2, len2) = TCFData::from_bytes(&bytes[offset + 1 + len1..], layer_desc, s)?;
                 Ok((TCFLayer::L1S(l1, l2, true), offset + len1 + len2 + 1))
             },
             13 => {
                 let (l1, len1) = TCFIndex::from_bytes(&bytes[offset + 1..])?;
-                let (l2, len2) = TCFData::from_bytes(&bytes[offset + 1 + len1..], layer_desc)?;
+                let (l2, len2) = TCFData::from_bytes(&bytes[offset + 1 + len1..], layer_desc, s)?;
                 Ok((TCFLayer::L1S(l1, l2, false), offset + len1 + len2 + 1))
             },
             14 => {
                 let (l1, len1) = TCFIndex::from_bytes(&bytes[offset + 1..])?;
                 let (l2, len2) = TCFIndex::from_bytes(&bytes[offset + 1 + len1..])?;
-                let (l3, len3) = TCFData::from_bytes(&bytes[offset + 1 + len1 + len2..], layer_desc)?;
+                let (l3, len3) = TCFData::from_bytes(&bytes[offset + 1 + len1 + len2..], layer_desc, s)?;
                 Ok((TCFLayer::L2S(l1, l2, l3, true, true), offset + len1 + len2 + len3 + 1))
             },
             15 => {
                 let (l1, len1) = TCFIndex::from_bytes(&bytes[offset + 1..])?;
                 let (l2, len2) = TCFIndex::from_bytes(&bytes[offset + 1 + len1..])?;
-                let (l3, len3) = TCFData::from_bytes(&bytes[offset + 1 + len1 + len2..], layer_desc)?;
+                let (l3, len3) = TCFData::from_bytes(&bytes[offset + 1 + len1 + len2..], layer_desc, s)?;
                 Ok((TCFLayer::L2S(l1, l2, l3, true, false), offset + len1 + len2 + len3 + 1))
             },
             16 => {
                 let (l1, len1) = TCFIndex::from_bytes(&bytes[offset + 1..])?;
                 let (l2, len2) = TCFIndex::from_bytes(&bytes[offset + 1 + len1..])?;
-                let (l3, len3) = TCFData::from_bytes(&bytes[offset + 1 + len1 + len2..], layer_desc)?;
+                let (l3, len3) = TCFData::from_bytes(&bytes[offset + 1 + len1 + len2..], layer_desc, s)?;
                 Ok((TCFLayer::L2S(l1, l2, l3, false, true), offset + len1 + len2 + len3 + 1))
             },
             17 => {
                 let (l1, len1) = TCFIndex::from_bytes(&bytes[offset + 1..])?;
                 let (l2, len2) = TCFIndex::from_bytes(&bytes[offset + 1 + len1..])?;
-                let (l3, len3) = TCFData::from_bytes(&bytes[offset + 1 + len1 + len2..], layer_desc)?;
+                let (l3, len3) = TCFData::from_bytes(&bytes[offset + 1 + len1 + len2..], layer_desc, s)?;
                 Ok((TCFLayer::L2S(l1, l2, l3, false, false), offset + len1 + len2 + len3 + 1))
             },
             18 => {
                 let (l1, len1) = TCFIndex::from_bytes(&bytes[offset + 1..])?;
                 let (l2, len2) = TCFIndex::from_bytes(&bytes[offset + 1 + len1..])?;
                 let (l3, len3) = TCFIndex::from_bytes(&bytes[offset + 1 + len1 + len2..])?;
-                let (l4, len4) = TCFData::from_bytes(&bytes[offset + 1 + len1 + len2 + len3..], layer_desc)?;
+                let (l4, len4) = TCFData::from_bytes(&bytes[offset + 1 + len1 + len2 + len3..], layer_desc, s)?;
                 Ok((TCFLayer::L3S(l1, l2, l3, l4, true, true), offset + len1 + len2 + len3 + len4 + 1))
             },
             19 => {
                 let (l1, len1) = TCFIndex::from_bytes(&bytes[offset + 1..])?;
                 let (l2, len2) = TCFIndex::from_bytes(&bytes[offset + 1 + len1..])?;
                 let (l3, len3) = TCFIndex::from_bytes(&bytes[offset + 1 + len1 + len2..])?;
-                let (l4, len4) = TCFData::from_bytes(&bytes[offset + 1 + len1 + len2 + len3..], layer_desc)?;
+                let (l4, len4) = TCFData::from_bytes(&bytes[offset + 1 + len1 + len2 + len3..], layer_desc, s)?;
                 Ok((TCFLayer::L3S(l1, l2, l3, l4, true, false), offset + len1 + len2 + len3 + len4 + 1))
             },
             20 => {
                 let (l1, len1) = TCFIndex::from_bytes(&bytes[offset + 1..])?;
                 let (l2, len2) = TCFIndex::from_bytes(&bytes[offset + 1 + len1..])?;
                 let (l3, len3) = TCFIndex::from_bytes(&bytes[offset + 1 + len1 + len2..])?;
-                let (l4, len4) = TCFData::from_bytes(&bytes[offset + 1 + len1 + len2 + len3..], layer_desc)?;
+                let (l4, len4) = TCFData::from_bytes(&bytes[offset + 1 + len1 + len2 + len3..], layer_desc, s)?;
                 Ok((TCFLayer::L3S(l1, l2, l3, l4, false, true), offset + len1 + len2 + len3 + len4 + 1))
             },
             21 => {
                 let (l1, len1) = TCFIndex::from_bytes(&bytes[offset + 1..])?;
                 let (l2, len2) = TCFIndex::from_bytes(&bytes[offset + 1 + len1..])?;
                 let (l3, len3) = TCFIndex::from_bytes(&bytes[offset + 1 + len1 + len2..])?;
-                let (l4, len4) = TCFData::from_bytes(&bytes[offset + 1 + len1 + len2 + len3..], layer_desc)?;
+                let (l4, len4) = TCFData::from_bytes(&bytes[offset + 1 + len1 + len2 + len3..], layer_desc, s)?;
                 Ok((TCFLayer::L3S(l1, l2, l3, l4, false, false), offset + len1 + len2 + len3 + len4 + 1))
             },
             22 => {
@@ -474,7 +474,8 @@ impl TCFLayer {
         }
     }
 
-    pub fn from_reader<R : BufRead>(bytes : &mut R, layer_desc : &LayerDesc) -> TCFResult<ReadLayerResult<TCFLayer>> {
+    pub fn from_reader<R : BufRead, S : StringCompression>(bytes : &mut R, 
+        layer_desc : &LayerDesc, s : &S) -> TCFResult<ReadLayerResult<TCFLayer>> {
         let mut buf = vec![0u8; 1];
         match bytes.read_exact(&mut buf) {
             Ok(()) => {},
@@ -545,69 +546,69 @@ impl TCFLayer {
                 Ok(ReadLayerResult::Layer(TCFLayer::L3(l1, l2, l3, false, false)))
             },
             11 => {
-                let l = TCFData::from_reader(bytes, layer_desc)?;
+                let l = TCFData::from_reader(bytes, layer_desc, s)?;
                 Ok(ReadLayerResult::Layer(TCFLayer::LS(l)))
             },
             12 => {
                 let l1 = TCFIndex::from_reader(bytes)?;
-                let l2 = TCFData::from_reader(bytes, layer_desc)?;
+                let l2 = TCFData::from_reader(bytes, layer_desc, s)?;
                 Ok(ReadLayerResult::Layer(TCFLayer::L1S(l1, l2, true)))
             },
             13 => {
                 let l1 = TCFIndex::from_reader(bytes)?;
-                let l2 = TCFData::from_reader(bytes, layer_desc)?;
+                let l2 = TCFData::from_reader(bytes, layer_desc, s)?;
                 Ok(ReadLayerResult::Layer(TCFLayer::L1S(l1, l2, false)))
             },
             14 => {
                 let l1 = TCFIndex::from_reader(bytes)?;
                 let l2 = TCFIndex::from_reader(bytes)?;
-                let l3 = TCFData::from_reader(bytes, layer_desc)?;
+                let l3 = TCFData::from_reader(bytes, layer_desc, s)?;
                 Ok(ReadLayerResult::Layer(TCFLayer::L2S(l1, l2, l3, true, true)))
             },
             15 => {
                 let l1 = TCFIndex::from_reader(bytes)?;
                 let l2 = TCFIndex::from_reader(bytes)?;
-                let l3 = TCFData::from_reader(bytes, layer_desc)?;
+                let l3 = TCFData::from_reader(bytes, layer_desc, s)?;
                 Ok(ReadLayerResult::Layer(TCFLayer::L2S(l1, l2, l3, true, false)))
             },
             16 => {
                 let l1 = TCFIndex::from_reader(bytes)?;
                 let l2 = TCFIndex::from_reader(bytes)?;
-                let l3 = TCFData::from_reader(bytes, layer_desc)?;
+                let l3 = TCFData::from_reader(bytes, layer_desc, s)?;
                 Ok(ReadLayerResult::Layer(TCFLayer::L2S(l1, l2, l3, false, true)))
             },
             17 => {
                 let l1 = TCFIndex::from_reader(bytes)?;
                 let l2 = TCFIndex::from_reader(bytes)?;
-                let l3 = TCFData::from_reader(bytes, layer_desc)?;
+                let l3 = TCFData::from_reader(bytes, layer_desc, s)?;
                 Ok(ReadLayerResult::Layer(TCFLayer::L2S(l1, l2, l3, false, false)))
             },
             18 => {
                 let l1 = TCFIndex::from_reader(bytes)?;
                 let l2 = TCFIndex::from_reader(bytes)?;
                 let l3 = TCFIndex::from_reader(bytes)?;
-                let l4 = TCFData::from_reader(bytes, layer_desc)?;
+                let l4 = TCFData::from_reader(bytes, layer_desc, s)?;
                 Ok(ReadLayerResult::Layer(TCFLayer::L3S(l1, l2, l3, l4, true, true)))
             },
             19 => {
                 let l1 = TCFIndex::from_reader(bytes)?;
                 let l2 = TCFIndex::from_reader(bytes)?;
                 let l3 = TCFIndex::from_reader(bytes)?;
-                let l4 = TCFData::from_reader(bytes, layer_desc)?;
+                let l4 = TCFData::from_reader(bytes, layer_desc, s)?;
                 Ok(ReadLayerResult::Layer(TCFLayer::L3S(l1, l2, l3, l4, true, false)))
             },
             20 => {
                 let l1 = TCFIndex::from_reader(bytes)?;
                 let l2 = TCFIndex::from_reader(bytes)?;
                 let l3 = TCFIndex::from_reader(bytes)?;
-                let l4 = TCFData::from_reader(bytes, layer_desc)?;
+                let l4 = TCFData::from_reader(bytes, layer_desc, s)?;
                 Ok(ReadLayerResult::Layer(TCFLayer::L3S(l1, l2, l3, l4, false, true)))
             },
             21 => {
                 let l1 = TCFIndex::from_reader(bytes)?;
                 let l2 = TCFIndex::from_reader(bytes)?;
                 let l3 = TCFIndex::from_reader(bytes)?;
-                let l4 = TCFData::from_reader(bytes, layer_desc)?;
+                let l4 = TCFData::from_reader(bytes, layer_desc, s)?;
                 Ok(ReadLayerResult::Layer(TCFLayer::L3S(l1, l2, l3, l4, false, false)))
             },
             22 => {

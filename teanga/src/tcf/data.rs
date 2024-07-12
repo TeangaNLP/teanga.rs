@@ -1,5 +1,6 @@
 /// Teanga Compressed Format
 use crate::{LayerDesc, DataType};
+use crate::tcf::string::StringCompression;
 use crate::tcf::index::{Index, IndexResult};
 use crate::tcf::tcf_index::TCFIndex;
 use crate::tcf::type_index::TypeIndex;
@@ -66,10 +67,10 @@ impl TCFData {
         }
     }
 
-    pub fn into_bytes(self) -> Vec<u8> {
+    pub fn into_bytes<C : StringCompression>(self, compress : &C) -> Vec<u8> {
         match self {
             TCFData::String(v) => {
-                index_results_to_bytes(&v)
+                index_results_to_bytes(&v, compress)
             }
             TCFData::Enum(v) => {
                 TCFIndex::from_vec(&v).into_bytes()
@@ -77,10 +78,10 @@ impl TCFData {
         }
     }
 
-    pub fn from_bytes(data : &[u8], ld : &LayerDesc) -> TCFResult<(TCFData, usize)> {
+    pub fn from_bytes<S : StringCompression>(data : &[u8], ld : &LayerDesc, s: &S) -> TCFResult<(TCFData, usize)> {
         match ld.data {
             Some(DataType::String) => {
-                let (v, len) = bytes_to_index_results(data)?;
+                let (v, len) = bytes_to_index_results(data, s)?;
                 Ok((TCFData::String(v), len))
             }
             Some(DataType::Enum(_)) => {
@@ -96,10 +97,10 @@ impl TCFData {
         }
     }
 
-    pub fn from_reader<R: BufRead>(input : &mut R, ld : &LayerDesc) -> TCFResult<TCFData> {
+    pub fn from_reader<R: BufRead, S : StringCompression>(input : &mut R, ld : &LayerDesc, s : &S) -> TCFResult<TCFData> {
         match ld.data {
             Some(DataType::String) => {
-                let v = reader_to_index_results(input)?;
+                let v = reader_to_index_results(input, s)?;
                 Ok(TCFData::String(v))
             }
             Some(DataType::Enum(_)) => {
@@ -118,7 +119,7 @@ impl TCFData {
 }
 
 
-fn index_results_to_bytes(ir : &Vec<IndexResult>) -> Vec<u8> {
+fn index_results_to_bytes<C : StringCompression>(ir : &Vec<IndexResult>, compress : &C) -> Vec<u8> {
     let mut d = Vec::new();
     let mut type_index = TypeIndex::new();
     for i in ir {
@@ -132,7 +133,7 @@ fn index_results_to_bytes(ir : &Vec<IndexResult>) -> Vec<u8> {
             }
             IndexResult::String(s) => {
                 type_index.append(true);
-                let b = smaz::compress(&s.as_bytes());
+                let b = compress.compress(s);
                 d.extend(u32_to_varbytes(b.len() as u32));
                 d.extend(b);
             }
@@ -145,7 +146,7 @@ fn index_results_to_bytes(ir : &Vec<IndexResult>) -> Vec<u8> {
     d2
 }
 
-fn bytes_to_index_results(data : &[u8]) -> TCFResult<(Vec<IndexResult>, usize)> {
+fn bytes_to_index_results<S : StringCompression>(data : &[u8], s : &S) -> TCFResult<(Vec<IndexResult>, usize)> {
     let mut results = Vec::new();
     let (len, len1) = varbytes_to_u32(&data[0..]);
     let len = len as usize;
@@ -154,8 +155,8 @@ fn bytes_to_index_results(data : &[u8]) -> TCFResult<(Vec<IndexResult>, usize)> 
     while results.len() < len {
         if type_index.value(results.len()) {
             let (n, len3) = varbytes_to_u32(&data[offset..]);
-            let s = smaz::decompress(&data[offset + len3..offset + len3 + n as usize])?;
-            results.push(IndexResult::String(std::str::from_utf8(s.as_slice())?.to_string()));
+            let s = s.decompress(&data[offset + len3..offset + len3 + n as usize])?;
+            results.push(IndexResult::String(s));
             offset += len3 + n as usize;
         } else {
             let (n, len) = varbytes_to_u32(&data[offset..]);
@@ -166,7 +167,7 @@ fn bytes_to_index_results(data : &[u8]) -> TCFResult<(Vec<IndexResult>, usize)> 
     Ok((results, offset))
 }
 
-fn reader_to_index_results<R: BufRead>(input : &mut R) -> TCFResult<Vec<IndexResult>> {
+fn reader_to_index_results<R: BufRead, S : StringCompression>(input : &mut R, s: &S) -> TCFResult<Vec<IndexResult>> {
     let mut results = Vec::new();
     let len = read_varbytes(input)? as usize;
     let type_index = TypeIndex::from_reader(input, len)?;
@@ -175,8 +176,8 @@ fn reader_to_index_results<R: BufRead>(input : &mut R) -> TCFResult<Vec<IndexRes
             let n = read_varbytes(input)? as usize;
             let mut buf = vec![0u8; n];
             input.read_exact(&mut buf)?;
-            let s = smaz::decompress(&buf)?;
-            results.push(IndexResult::String(std::str::from_utf8(s.as_slice())?.to_string()));
+            let s = s.decompress(&buf)?;
+            results.push(IndexResult::String(s));
         } else {
             let n = read_varbytes(input)?;
             results.push(IndexResult::Index(n));
@@ -263,11 +264,12 @@ mod tests {
                 data: Some(DataType::String),
                 ..LayerDesc::default()
             }, &mut index).unwrap();
-        let bytes = data.clone().into_bytes();
+        let c = crate::tcf::string::SmazCompression;
+        let bytes = data.clone().into_bytes(&c);
         let (data2, _) = TCFData::from_bytes(&bytes, &LayerDesc {
             data: Some(DataType::String),
             ..LayerDesc::default()
-        }).unwrap();
+        }, &c).unwrap();
         assert_eq!(data, data2);
     }
 

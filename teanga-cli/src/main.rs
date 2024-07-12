@@ -3,6 +3,10 @@ use teanga::TransactionCorpus;
 use std::fs::File;
 use flate2;
 use std::io::{BufReader, BufRead};
+use teanga::Corpus;
+use teanga::TCFConfig;
+use teanga::Document;
+use teanga::TeangaError;
 
 // for CBOR conversion
 use std::io::BufWriter;
@@ -127,22 +131,6 @@ impl LoadCommand {
 }
 
 impl ConvertCommand {
-//    fn run(&self) -> Result<(), String> {
-//        let output = BufWriter::new(File::create(&self.output)
-//            .map_err(|e| format!("Failed to create output file: {}", e))?);
-//        let mut all_data = Vec::new();
-//        for line in BufReader::new(flate2::read::GzDecoder::new(File::open(&self.file)
-//            .map_err(|e| format!("Failed to open file: {}", e))?))
-//            .lines() {
-//            let line = line.map_err(|e| format!("Failed to read line: {}", e))?;
-//            let data : HashMap<String, Layer> = serde_json::from_str(&line)
-//                .map_err(|e| format!("Failed to parse JSON: {}", e))?;
-//            all_data.push(data);
-//        }
-//        into_writer(&all_data, output).
-//            map_err(|e| format!("Failed to write CBOR: {}", e))?;
-//        Ok(())
-//    }
     fn run(&self) -> Result<(), String> {
         let mut input = if self.input.ends_with(".gz") {
             let reader = BufReader::new(flate2::read::GzDecoder::new(File::open(&self.input)
@@ -205,17 +193,38 @@ impl ConvertCommand {
                     .map_err(|e| format!("Failed to write YAML: {}", e))?;
             }
             Format::TCF => {
+                let config = TCFConfig::new();
                 if progressive {
-                    let (mut cache, keys) = teanga::write_tcf_header(&mut output, &corpus)
+                    let (mut cache, keys) = teanga::write_tcf_header(&mut output, corpus.get_meta())
                         .map_err(|e| format!("Failed to write TCF: {}", e))?;
-                    for line in input.lines() {
-                        let line = line.map_err(|e| format!("Failed to read line: {}", e))?;
-                        let doc = teanga::serialization::read_jsonl_line(line, &mut corpus).map_err(|e| format!("Failed to parse JSON: {}", e))?;
-                        teanga::write_tcf_doc(&mut output, doc, &mut cache, &keys, &corpus)
+                    let replay = std::cell::RefCell::new(Vec::new());
+                    let do_replay = std::cell::RefCell::new(true);
+                    let mut iter : Box<dyn Iterator<Item=Result<Document, TeangaError>>> = Box::new(
+                        input.lines().map(|line| {
+                            //let line = line.map_err(|e| format!("Failed to read line: {}", e))?;
+                            //let doc = teanga::serialization::read_jsonl_line(line, &mut corpus).map_err(|e| format!("Failed to parse JSON: {}", e))?;
+                            let line = line.expect("Failed to read line");
+                            let doc = teanga::serialization::read_jsonl_line(line, &mut corpus.clone()).expect("Failed to parse JSON");
+                            if *do_replay.borrow() {
+                                replay.borrow_mut().push(doc.clone());
+                            }
+                            Ok(doc)
+                        }));
+                    let compressor = teanga::write_tcf_config(&mut output, &mut iter, &config)
+                        .map_err(|e| format!("Failed to write TCF: {}", e))?;
+                    let replay = replay.clone();
+                    for doc in replay.borrow().iter() {
+                        teanga::write_tcf_doc(&mut output, doc.clone(), &mut cache, &keys, &corpus, &compressor)
+                            .map_err(|e| format!("Failed to write TCF: {}", e))?;
+                    }
+                    *do_replay.borrow_mut() = false;
+                    for doc in iter {
+                        let doc = doc.map_err(|e| format!("Failed to read document: {}", e))?;
+                        teanga::write_tcf_doc(&mut output, doc, &mut cache, &keys, &corpus, &compressor)
                             .map_err(|e| format!("Failed to write TCF: {}", e))?;
                     }
                 } else {
-                    teanga::write_tcf(&mut output, &corpus)
+                    teanga::write_tcf_with_config(&mut output, &corpus, &config)
                         .map_err(|e| format!("Failed to write TCF: {}", e))?;
                 }
             }

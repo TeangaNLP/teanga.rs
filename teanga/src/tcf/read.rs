@@ -6,15 +6,19 @@ use thiserror::Error;
 use crate::{TeangaResult, TeangaError, WriteableCorpus};
 use std::io::BufRead;
 
+use crate::tcf::string::StringCompression;
+use crate::tcf::string::ShocoCompression;
+use crate::tcf::string::read_shoco_model;
 use crate::tcf::{TCFResult, TCFError};
 use crate::tcf::index::Index;
 use crate::tcf::layer::{TCFLayer, TCF_EMPTY_LAYER};
 
 
 
-fn bytes_to_layer(bytes : &[u8], idx : &mut Index, layer_desc : &LayerDesc) -> TCFResult<(Layer, usize)> {
-    let (tcf, len) = TCFLayer::from_bytes(bytes, 0, layer_desc)?;
-    Ok((tcf.to_layer(idx, layer_desc), len))
+fn bytes_to_layer<S : StringCompression>(bytes : &[u8], idx : &mut Index, 
+    layer_desc : &LayerDesc, s : &S) -> TCFResult<(Layer, usize)> {
+    let (tcf, len) = TCFLayer::from_bytes(bytes, 0, layer_desc, s)?;
+    Ok((tcf.to_layer(idx, layer_desc, s), len))
 }
 
 pub enum ReadLayerResult<Layer> {
@@ -23,9 +27,10 @@ pub enum ReadLayerResult<Layer> {
     Eof
 }
 
-fn read_layer<R : BufRead>(bytes : &mut R, idx : &mut Index, layer_desc : &LayerDesc) -> TCFResult<ReadLayerResult<Layer>> {
-    match TCFLayer::from_reader(bytes, layer_desc)? {
-        ReadLayerResult::Layer(tcf) => Ok(ReadLayerResult::Layer(tcf.to_layer(idx, layer_desc))),
+fn read_layer<R : BufRead, S : StringCompression>(bytes : &mut R, 
+    idx : &mut Index, layer_desc : &LayerDesc, s : &S) -> TCFResult<ReadLayerResult<Layer>> {
+    match TCFLayer::from_reader(bytes, layer_desc, s)? {
+        ReadLayerResult::Layer(tcf) => Ok(ReadLayerResult::Layer(tcf.to_layer(idx, layer_desc, s))),
         ReadLayerResult::Empty => Ok(ReadLayerResult::Empty),
         ReadLayerResult::Eof => Ok(ReadLayerResult::Eof)
     }
@@ -45,16 +50,17 @@ fn read_layer<R : BufRead>(bytes : &mut R, idx : &mut Index, layer_desc : &Layer
 /// # Returns
 ///
 /// A new document object
-pub fn bytes_to_doc(bytes : &[u8], offset : usize,
+pub fn bytes_to_doc<S : StringCompression>(bytes : &[u8], offset : usize,
     meta_keys : &Vec<String>,
     meta : &HashMap<String, LayerDesc>,
-    index : &mut Index) -> TeangaResult<Document> {
+    index : &mut Index,
+    s : &S) -> TeangaResult<Document> {
     let mut layers = Vec::new();
     let mut i = offset;
     for key in meta_keys.iter() {
         if bytes[i] != TCF_EMPTY_LAYER {
             let (layer, n) = bytes_to_layer(&bytes[i..], 
-                index, meta.get(key).ok_or_else(|| TeangaError::LayerNotFoundError(key.clone()))?)?;
+                index, meta.get(key).ok_or_else(|| TeangaError::LayerNotFoundError(key.clone()))?, s)?;
             layers.push((key.clone(), layer));
             i += n;
         } else {
@@ -88,17 +94,18 @@ pub enum ReadDocError {
 /// * `meta_keys` - The keys of the layers in the document in the serialization order
 /// * `meta` - The metadata for the document
 /// * `index` - The index of strings for serialization
+/// * `s` - The string compression
 ///
 /// # Returns
 ///
 /// A new document object
-pub fn read_doc<R : BufRead>(input : &mut R, meta_keys : &Vec<String>,
-    meta : &HashMap<String, LayerDesc>, index : &mut Index) -> Result<Option<Document>, ReadDocError> {
+pub fn read_doc<R : BufRead, S : StringCompression>(input : &mut R, meta_keys : &Vec<String>,
+    meta : &HashMap<String, LayerDesc>, index : &mut Index, s : &S) -> Result<Option<Document>, ReadDocError> {
     let mut layers = Vec::new();
     for key in meta_keys.iter() {
         let layer_desc = meta.get(key)
             .ok_or_else(|| ReadDocError::DocumentKeyError(key.clone()))?;
-        match read_layer(input, index, layer_desc)? {
+        match read_layer(input, index, layer_desc, s)? {
             ReadLayerResult::Layer(layer) => {
                 layers.push((key.clone(), layer));
             },
@@ -135,17 +142,29 @@ pub enum TCFReadError {
 /// * `corpus` - The corpus to read into
 pub fn read_tcf<R: std::io::BufRead, C: WriteableCorpus>(
     input : &mut R, corpus : &mut C) -> Result<(), TCFReadError> {
-    let mut meta_bytes = vec![0u8; 4];
+   let mut meta_bytes = vec![0u8; 4];
     input.read_exact(meta_bytes.as_mut_slice())?;
     let len = u32::from_be_bytes([meta_bytes[0], meta_bytes[1], meta_bytes[2], meta_bytes[3]]) as usize;
     let mut meta_bytes = vec![0u8; len];
     input.read_exact(meta_bytes.as_mut_slice())?;
     let meta : HashMap<String, LayerDesc> = from_reader(meta_bytes.as_slice())?;
     corpus.set_meta(meta.clone());
-    let mut cache = Index::new();
+    let mut string_compression_byte = [0u8; 1];
+    input.read_exact(string_compression_byte.as_mut_slice())?;
+    let string_compression = match string_compression_byte[0] {
+        0 => crate::tcf::string::SupportedStringCompression::None,
+        1 => crate::tcf::string::SupportedStringCompression::Smaz,
+        2 => crate::tcf::string::SupportedStringCompression::Shoco(ShocoCompression::default()),
+        3 => {
+            let model = read_shoco_model(input)?;
+            crate::tcf::string::SupportedStringCompression::Shoco(model)
+        }
+        _ => return Err(TCFReadError::TCFError(ReadDocError::TCFError(TCFError::InvalidByte)))
+    };
+     let mut cache = Index::new();
     let mut meta_keys : Vec<String> = meta.keys().cloned().collect();
     meta_keys.sort();
-    while let Some(doc) = read_doc(input, &meta_keys, &meta, &mut cache)? {
+    while let Some(doc) = read_doc(input, &meta_keys, &meta, &mut cache, &string_compression)? {
         corpus.add_doc(doc)?;
     }
     Ok(())
@@ -196,7 +215,7 @@ mod tests {
             "Test string".to_string())]).unwrap();
         let mut data : Vec<u8> = Vec::new();
         write_tcf(&mut data, &corpus).unwrap();
-        assert_eq!(data, vec![0, 0, 0, 23, 161, 100, 116, 101, 120, 116, 161, 100, 116, 121, 112, 101, 106, 99, 104, 97, 114, 97, 99, 116, 101, 114, 115, 0, 0, 7, 254, 84, 54, 35, 77, 114, 84]);
+        assert_eq!(data, vec![0, 0, 0, 23, 161, 100, 116, 101, 120, 116, 161, 100, 116, 121, 112, 101, 106, 99, 104, 97, 114, 97, 99, 116, 101, 114, 115, 1, 0, 0, 7, 254, 84, 54, 35, 77, 114, 84]);
         let mut corpus2 = SimpleCorpus::new();
         read_tcf(&mut data.as_slice(), &mut corpus2).unwrap();
     }

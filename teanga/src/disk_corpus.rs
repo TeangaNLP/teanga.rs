@@ -11,7 +11,7 @@ use crate::*;
 pub struct DiskCorpus {
     meta: HashMap<String, LayerDesc>,
     order: Vec<String>,
-    path: String // TODO not public
+    path: String
 }
 
 impl DiskCorpus {

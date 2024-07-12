@@ -4,6 +4,7 @@ use crate::{PyLayerDesc, PyLayerType, PyValue, PyDataType, PyRawLayer};
 use pyo3::types::PyByteArray;
 use teanga::{LayerDesc, teanga_id, Document, Index, 
     bytes_to_doc, doc_content_to_bytes};
+use teanga::SmazCompression;
 
 #[pyclass]
 pub struct TCFPyCorpus {
@@ -63,7 +64,7 @@ impl TCFPyCorpus {
         let mut index = self.index.to_index();
         let data = doc_content_to_bytes(doc,
             &self.meta_keys,
-            &self.meta, &mut index)
+            &self.meta, &mut index, &SmazCompression)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?;
         self.order.push(id.clone());
         let d = self.data.bind(py);
@@ -90,7 +91,8 @@ impl TCFPyCorpus {
             // TODO: Index should be initialized already!
             let doc = unsafe {
                 bytes_to_doc(data.as_bytes(), *i,
-                    &self.meta_keys, &self.meta, &mut index)
+                    &self.meta_keys, &self.meta, &mut index,
+                    &SmazCompression)
                     .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?
             };
             self.index = TCFPyIndex::from_index(index);
