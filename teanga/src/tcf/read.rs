@@ -6,6 +6,7 @@ use thiserror::Error;
 use crate::{TeangaResult, TeangaError, WriteableCorpus};
 use std::io::BufRead;
 
+use crate::tcf::TCF_VERSION;
 use crate::tcf::string::StringCompression;
 use crate::tcf::string::ShocoCompression;
 use crate::tcf::string::read_shoco_model;
@@ -130,7 +131,11 @@ pub enum TCFReadError {
     #[error("Ciborium error: {0}")]
     CiboriumError(#[from] ciborium::de::Error<std::io::Error>),
     #[error("TCF read error: {0}")]
-    TCFError(#[from] ReadDocError)
+    TCFError(#[from] ReadDocError),
+    #[error("Not a TCF file")]
+    NotTCFFile,
+    #[error("Invalid version ({0} > {1})")]
+    InvalidVersion(u16, u16)
 }
 
 
@@ -142,7 +147,15 @@ pub enum TCFReadError {
 /// * `corpus` - The corpus to read into
 pub fn read_tcf<R: std::io::BufRead, C: WriteableCorpus>(
     input : &mut R, corpus : &mut C) -> Result<(), TCFReadError> {
-   let mut meta_bytes = vec![0u8; 4];
+    let mut format_id_bytes = vec![0u8; 8];
+    input.read_exact(format_id_bytes.as_mut_slice())?;
+    if format_id_bytes[0..6] != *"TEANGA".as_bytes() {
+        return Err(TCFReadError::NotTCFFile);
+    }
+    if format_id_bytes[6..8] != TCF_VERSION.to_be_bytes() {
+        return Err(TCFReadError::InvalidVersion(u16::from_be_bytes([format_id_bytes[6], format_id_bytes[7]]), TCF_VERSION));
+    }
+    let mut meta_bytes = vec![0u8; 4];
     input.read_exact(meta_bytes.as_mut_slice())?;
     let len = u32::from_be_bytes([meta_bytes[0], meta_bytes[1], meta_bytes[2], meta_bytes[3]]) as usize;
     let mut meta_bytes = vec![0u8; len];
@@ -215,7 +228,7 @@ mod tests {
             "Test string".to_string())]).unwrap();
         let mut data : Vec<u8> = Vec::new();
         write_tcf(&mut data, &corpus).unwrap();
-        assert_eq!(data, vec![0, 0, 0, 23, 161, 100, 116, 101, 120, 116, 161, 100, 116, 121, 112, 101, 106, 99, 104, 97, 114, 97, 99, 116, 101, 114, 115, 1, 0, 0, 7, 254, 84, 54, 35, 77, 114, 84]);
+        assert_eq!(data, vec![84, 69, 65, 78, 71, 65, 0, 1, 0, 0, 0, 23, 161, 100, 116, 101, 120, 116, 161, 100, 116, 121, 112, 101, 106, 99, 104, 97, 114, 97, 99, 116, 101, 114, 115, 1, 0, 0, 7, 254, 84, 54, 35, 77, 114, 84]);
         let mut corpus2 = SimpleCorpus::new();
         read_tcf(&mut data.as_slice(), &mut corpus2).unwrap();
     }

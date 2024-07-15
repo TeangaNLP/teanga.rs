@@ -54,6 +54,14 @@ enum Format {
     Guess
 }
 
+#[derive(ValueEnum, Debug, Clone, PartialEq, Eq)]
+#[clap(rename_all = "lowercase")]
+enum StringCompression {
+    Smaz,
+    Shoco,
+    Generate
+}
+
 impl Format {
     fn guess(&self, file : &str) -> Format {
         match self {
@@ -96,7 +104,18 @@ struct ConvertCommand {
 
     /// The meta information, as a separate YAML file (required for JSONL)
     #[arg(short,long)]
-    meta_file: Option<String>
+    meta_file: Option<String>,
+
+    /// The string compression method (for TCF output only). It is best to use
+    /// `smaz` for English corpora and `generate` for other languages.
+    #[arg(long)]
+    #[clap(default_value="smaz")]
+    compression: StringCompression,
+
+    /// The number of bytes to use for generate string compression (for TCF output only, only used if compression is set to generate)
+    #[arg(long)]
+    #[clap(default_value="1000000")]
+    compression_bytes: usize
 }
 
 impl LoadCommand {
@@ -193,7 +212,11 @@ impl ConvertCommand {
                     .map_err(|e| format!("Failed to write YAML: {}", e))?;
             }
             Format::TCF => {
-                let config = TCFConfig::new();
+                let config = match self.compression {
+                    StringCompression::Smaz => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::Smaz),
+                    StringCompression::Shoco => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::ShocoDefault),
+                    StringCompression::Generate => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::GenerateShocoModel(self.compression_bytes)),
+                };
                 if progressive {
                     let (mut cache, keys) = teanga::write_tcf_header(&mut output, corpus.get_meta())
                         .map_err(|e| format!("Failed to write TCF: {}", e))?;

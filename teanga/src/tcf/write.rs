@@ -5,6 +5,7 @@ use std::io::Write;
 use thiserror::Error;
 use crate::{TeangaResult, TeangaError, DocumentContent, IntoLayer, Corpus};
 
+use crate::tcf::TCF_VERSION;
 use crate::tcf::TCFConfig;
 use crate::tcf::StringCompressionMethod;
 use crate::tcf::TCFResult;
@@ -110,6 +111,8 @@ pub fn write_tcf_with_config<W : Write, C: Corpus>(
 /// to call `write_tcf_doc` for each document
 pub fn write_tcf_header<W : Write>(
     out : &mut W, meta : &HashMap<String, LayerDesc>) -> Result<(Index, Vec<String>), TCFWriteError> {
+    out.write("TEANGA".as_bytes())?;
+    out.write(TCF_VERSION.to_be_bytes().as_ref())?;
     let mut meta_bytes : Vec<u8> = Vec::new();
     into_writer(meta, &mut meta_bytes).unwrap();
     out.write((meta_bytes.len() as u32).to_be_bytes().as_ref())?;

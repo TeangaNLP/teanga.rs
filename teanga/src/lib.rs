@@ -42,7 +42,7 @@ pub use layer::{IntoLayer, Layer, LayerDesc, DataType, LayerType, TeangaData};
 pub use layer_builder::build_layer;
 pub use query::Query;
 pub use serialization::{read_json, read_yaml, write_json, write_yaml};
-pub use tcf::{write_tcf, write_tcf_with_config, read_tcf, write_tcf_header, write_tcf_config, write_tcf_doc, doc_content_to_bytes, bytes_to_doc, Index, IndexResult, TCFReadError, TCFWriteError, TCFConfig, StringCompression, StringCompressionError, NoCompression, SmazCompression, ShocoCompression};
+pub use tcf::{write_tcf, write_tcf_with_config, read_tcf, write_tcf_header, write_tcf_config, write_tcf_doc, doc_content_to_bytes, bytes_to_doc, Index, IndexResult, TCFReadError, TCFWriteError, TCFConfig, StringCompression, StringCompressionError, StringCompressionMethod, NoCompression, SmazCompression, ShocoCompression};
 pub use match_condition::{TextMatchCondition, DataMatchCondition};
 
 const DOCUMENT_PREFIX : u8 = 0x00;

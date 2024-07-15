@@ -91,3 +91,6 @@ pub enum StringCompressionMethod {
     /// Build a new Shoco model
     GenerateShocoModel(usize)
 }
+
+/// The TCF version for binary compatibility
+pub static TCF_VERSION : u16 = 1;

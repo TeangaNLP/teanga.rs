@@ -32,7 +32,9 @@ impl <'de,'a, C: WriteableCorpus> Visitor<'de> for TeangaVisitor2<'a, C> {
                 let data = map.next_value::<Vec<String>>()?;
                 self.0.set_order(data);
             } else if !self.1 {
+                eprintln!("Here {}", key);
                 let doc = map.next_value::<HashMap<String, Layer>>()?;
+                eprintln!("Not here");
                 let id = self.0.add_doc(doc).map_err(serde::de::Error::custom)?;
                 if id[..min(id.len(), key.len())] != key[..min(id.len(), key.len())] {
                     return Err(serde::de::Error::custom(format!("Document fails hash check: {} != {}", id, key)))
@@ -368,4 +370,3 @@ ecWc:
         read_yaml_meta(data.as_bytes(), &mut SimpleCorpus::new()).unwrap();
     }
 }
-
