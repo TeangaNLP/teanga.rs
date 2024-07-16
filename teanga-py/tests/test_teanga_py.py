@@ -1,7 +1,9 @@
 import teanga_pyo3.teanga as teangadb# if this fails the Rust code is not installed
-from teanga import Corpus, read_json_str, read_yaml_str
+from teanga import Corpus, read_json_str, read_yaml_str, read_tcf
 import os
 import shutil
+import sys
+import tempfile
 from collections import Counter
 
 def test_teangadb_installed():
@@ -58,8 +60,8 @@ def test_to_yaml_str():
     corpus.add_layer_meta("text")
     _doc = corpus.add_doc("This is a document.")
     assert (corpus.to_yaml_str() ==
-        '_meta:\n    text:\n        type: characters\n\
-Kjco:\n    text: This is a document.\n')
+        '_meta:\n  text:\n    type: characters\n\
+Kjco:\n  text: This is a document.\n')
 
 def test_to_json_str():
     corpus = Corpus(db="tmp.db", new=True)
@@ -204,33 +206,44 @@ def test_search():
     assert(list(corpus.search(pos="VERB", words="ideas")) == ['9wpe'])
     assert(list(corpus.search({"pos": "VERB", "lemma": "sleep"})) == ['9wpe'])
     assert(list(corpus.search({"$and": {"pos": "VERB", "lemma": "sleep"}})) == ['9wpe'])
- 
 
-# Awaiting merger of PR in teanga2
-#def test_text_freq():
+def test_text_freq():
+    corpus = Corpus()
+    corpus.add_layer_meta("text")
+    corpus.add_layer_meta("words", layer_type="span", base="text")
+    doc = corpus.add_doc("This is a document.")
+    doc.words = [(0, 4), (5, 7), (8, 9), (10, 18)]
+    assert (corpus.text_freq("words") == 
+            Counter({'This': 1, 'is': 1, 'a': 1, 'document': 1}))
+    assert (corpus.text_freq("words", lambda x: "i" in x) == 
+            Counter({'This': 1, 'is': 1}))
+ 
+def test_val_freq():
+    corpus = Corpus()
+    corpus.add_layer_meta("text")
+    corpus.add_layer_meta("words", layer_type="span", base="text")
+    corpus.add_layer_meta("pos", layer_type="seq", base="words",
+                           data=["NOUN", "VERB", "ADJ"])
+    doc = corpus.add_doc("Colorless green ideas sleep furiously.")
+    doc.words = [(0, 9), (10, 15), (16, 21), (22, 28), (29, 37)]
+    doc.pos = ["ADJ", "ADJ", "NOUN", "VERB", "ADV"]
+    assert (corpus.val_freq("pos") ==
+        Counter({'ADJ': 2, 'NOUN': 1, 'VERB': 1, 'ADV': 1}))
+    assert (corpus.val_freq("pos", ["NOUN", "VERB"]) ==
+        Counter({'NOUN': 1, 'VERB': 1}))
+    assert (corpus.val_freq("pos", lambda x: x[0] == "A") ==
+        Counter({'ADJ': 2, 'ADV': 1}))
+ 
+# Require fix of #29 in teanga2
+#def test_tcf():
 #    corpus = Corpus()
 #    corpus.add_layer_meta("text")
 #    corpus.add_layer_meta("words", layer_type="span", base="text")
 #    doc = corpus.add_doc("This is a document.")
 #    doc.words = [(0, 4), (5, 7), (8, 9), (10, 18)]
-#    assert (corpus.text_freq("words") == 
-#            Counter({'This': 1, 'is': 1, 'a': 1, 'document': 1}))
-#    assert (corpus.text_freq("words", lambda x: "i" in x) == 
-#            Counter({'This': 1, 'is': 1}))
-# 
-#def test_val_freq():
-#    corpus = Corpus()
-#    corpus.add_layer_meta("text")
-#    corpus.add_layer_meta("words", layer_type="span", base="text")
-#    corpus.add_layer_meta("pos", layer_type="seq", base="words",
-#                           data=["NOUN", "VERB", "ADJ"])
-#    doc = corpus.add_doc("Colorless green ideas sleep furiously.")
-#    doc.words = [(0, 9), (10, 15), (16, 21), (22, 28), (29, 37)]
-#    doc.pos = ["ADJ", "ADJ", "NOUN", "VERB", "ADV"]
-#    assert (corpus.val_freq("pos") ==
-#        Counter({'ADJ': 2, 'NOUN': 1, 'VERB': 1, 'ADV': 1}))
-#    assert (corpus.val_freq("pos", ["NOUN", "VERB"]) ==
-#        Counter({'NOUN': 1, 'VERB': 1}))
-#    assert (corpus.val_freq("pos", lambda x: x[0] == "A") ==
-#        Counter({'ADJ': 2, 'ADV': 1}))
- 
+#    tmpfile = tempfile.mkstemp(suffix=".tcf")[1]
+#    print(tmpfile, file=sys.stderr)
+#    corpus.to_tcf(tmpfile)
+#    read_tcf(tmpfile)
+
+

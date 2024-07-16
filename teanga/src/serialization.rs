@@ -24,22 +24,23 @@ impl <'de,'a, C: WriteableCorpus> Visitor<'de> for TeangaVisitor2<'a, C> {
     fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
         where A: serde::de::MapAccess<'de>
     {
-         while let Some(ref key) = map.next_key::<String>()? {
+        let mut order = None;
+        while let Some(ref key) = map.next_key::<String>()? {
             if key == "_meta" {
                 let data = map.next_value::<HashMap<String, LayerDesc>>()?;
                 self.0.set_meta(data);
             } else if !self.1 && key == "_order" {
-                let data = map.next_value::<Vec<String>>()?;
-                self.0.set_order(data);
+                order = Some(map.next_value::<Vec<String>>()?);
             } else if !self.1 {
-                eprintln!("Here {}", key);
                 let doc = map.next_value::<HashMap<String, Layer>>()?;
-                eprintln!("Not here");
                 let id = self.0.add_doc(doc).map_err(serde::de::Error::custom)?;
                 if id[..min(id.len(), key.len())] != key[..min(id.len(), key.len())] {
                     return Err(serde::de::Error::custom(format!("Document fails hash check: {} != {}", id, key)))
                 }
             }
+        }
+        if let Some(order) = order {
+            self.0.set_order(order);
         }
         Ok(())
     }
