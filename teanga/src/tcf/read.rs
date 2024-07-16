@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use ciborium::from_reader;
 use thiserror::Error;
 use crate::{TeangaResult, TeangaError, WriteableCorpus};
-use std::io::BufRead;
+use std::io::{Read, BufRead, BufReader};
 
 use crate::tcf::TCF_VERSION;
 use crate::tcf::string::StringCompression;
@@ -145,8 +145,9 @@ pub enum TCFReadError {
 ///
 /// * `input` - The input stream
 /// * `corpus` - The corpus to read into
-pub fn read_tcf<R: std::io::BufRead, C: WriteableCorpus>(
-    input : &mut R, corpus : &mut C) -> Result<(), TCFReadError> {
+pub fn read_tcf<R: Read, C: WriteableCorpus>(
+    input : R, corpus : &mut C) -> Result<(), TCFReadError> {
+    let mut input = BufReader::new(input);
     let mut format_id_bytes = vec![0u8; 8];
     input.read_exact(format_id_bytes.as_mut_slice())?;
     if format_id_bytes[0..6] != *"TEANGA".as_bytes() {
@@ -169,7 +170,7 @@ pub fn read_tcf<R: std::io::BufRead, C: WriteableCorpus>(
         1 => crate::tcf::string::SupportedStringCompression::Smaz,
         2 => crate::tcf::string::SupportedStringCompression::Shoco(ShocoCompression::default()),
         3 => {
-            let model = read_shoco_model(input)?;
+            let model = read_shoco_model(&mut input)?;
             crate::tcf::string::SupportedStringCompression::Shoco(model)
         }
         _ => return Err(TCFReadError::TCFError(ReadDocError::TCFError(TCFError::InvalidByte)))
@@ -177,7 +178,7 @@ pub fn read_tcf<R: std::io::BufRead, C: WriteableCorpus>(
      let mut cache = Index::new();
     let mut meta_keys : Vec<String> = meta.keys().cloned().collect();
     meta_keys.sort();
-    while let Some(doc) = read_doc(input, &meta_keys, &meta, &mut cache, &string_compression)? {
+    while let Some(doc) = read_doc(&mut input, &meta_keys, &meta, &mut cache, &string_compression)? {
         corpus.add_doc(doc)?;
     }
     Ok(())
