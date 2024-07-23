@@ -152,7 +152,7 @@ impl TCFPyIndex {
     }
 
     pub fn from_index(index : Index) -> TCFPyIndex {
-        let (keys, key_strs, lru) = index.into_values();
+        let (keys, key_strs, lru) = index.into_values().unwrap();
         TCFPyIndex {
             keys,
             key_strs,

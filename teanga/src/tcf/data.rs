@@ -43,7 +43,7 @@ impl TCFData {
         }
     }
 
-    pub fn to_vec(&self, index : &mut Index, ld : &LayerDesc) -> Vec<String> {
+    pub fn to_vec(&self, index : &Index, ld : &LayerDesc) -> Vec<String> {
         match self {
             TCFData::String(v) => {
                 v.iter().map(|i| match i {

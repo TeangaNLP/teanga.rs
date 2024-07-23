@@ -58,7 +58,8 @@ impl TransactionCorpus {
         }
         self.db.insert(ORDER_BYTES.to_vec(), to_stdvec(&self.order)?)
             .map_err(|e| TeangaError::DBError(e))?;
-        Ok(DiskCorpus::new_unchecked(self.meta, self.order, self.path))
+        panic!("TODO");
+        //Ok(DiskCorpus::new_unchecked(self.meta, self.order, self.path))
     }
 
     pub fn read_yaml<'de, R: Read>(&mut self, r: R) -> Result<(), TeangaYamlError> {

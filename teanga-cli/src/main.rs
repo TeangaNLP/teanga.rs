@@ -237,13 +237,13 @@ impl ConvertCommand {
                         .map_err(|e| format!("Failed to write TCF: {}", e))?;
                     let replay = replay.clone();
                     for doc in replay.borrow().iter() {
-                        teanga::write_tcf_doc(&mut output, doc.clone(), &mut cache, &keys, &corpus, &compressor)
+                        teanga::write_tcf_doc(&mut output, doc.clone(), &mut cache, corpus.get_meta(), &compressor)
                             .map_err(|e| format!("Failed to write TCF: {}", e))?;
                     }
                     *do_replay.borrow_mut() = false;
                     for doc in iter {
                         let doc = doc.map_err(|e| format!("Failed to read document: {}", e))?;
-                        teanga::write_tcf_doc(&mut output, doc, &mut cache, &keys, &corpus, &compressor)
+                        teanga::write_tcf_doc(&mut output, doc, &mut cache, corpus.get_meta(), &compressor)
                             .map_err(|e| format!("Failed to write TCF: {}", e))?;
                     }
                 } else {

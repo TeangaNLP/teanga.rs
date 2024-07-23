@@ -87,11 +87,9 @@ pub fn write_tcf_with_config<W : Write, C: Corpus>(
     write_tcf_header(out, corpus.get_meta())?;
     let string_compression = write_tcf_config(out, &mut corpus.iter_docs(), config)?;
     let mut index = Index::new();
-    let mut meta_keys : Vec<String> = corpus.get_meta().keys().cloned().collect();
-    meta_keys.sort();
     for doc in corpus.iter_docs() {
         write_tcf_doc(out, doc?,
-                &mut index, &meta_keys, corpus, &string_compression)?;
+                &mut index, corpus.get_meta(), &string_compression)?;
     }
     Ok(())
 }
@@ -155,6 +153,40 @@ pub fn write_tcf_config<'a, W : Write>(
     Ok(c)
 }
 
+/// Write TCF header and compression method
+///
+/// # Arguments
+///
+/// * `out` - The output stream
+/// * `meta` - The metadata for the corpus
+/// * `string_compression` - The string compression method
+pub fn write_tcf_header_compression<W: Write>(
+    out : &mut W, meta : &HashMap<String, LayerDesc>, string_compression : &SupportedStringCompression) -> Result<(), TCFWriteError> {
+    out.write("TEANGA".as_bytes())?;
+    out.write(TCF_VERSION.to_be_bytes().as_ref())?;
+    let mut meta_bytes : Vec<u8> = Vec::new();
+    into_writer(meta, &mut meta_bytes).unwrap();
+    out.write((meta_bytes.len() as u32).to_be_bytes().as_ref())?;
+    out.write(meta_bytes.as_slice())?;
+    match string_compression {
+        SupportedStringCompression::None => {
+            out.write(&[0u8])?;
+        },
+        SupportedStringCompression::Smaz => {
+            out.write(&[1u8])?;
+        },
+        SupportedStringCompression::Shoco(model) => {
+            if *model == ShocoCompression::default() {
+                out.write(&[2u8])?;
+            } else {
+                out.write(&[3u8])?;
+                write_shoco_model(out, &model)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 
 /// Write a single document as TCF.
 ///
@@ -165,12 +197,13 @@ pub fn write_tcf_config<'a, W : Write>(
 /// * `out` - The output stream
 /// * `doc` - The document to write
 /// * `index` - The index for the document
-/// * `meta_keys` - The keys of the layers in the document in serialization order
-/// * `corpus` - The corpus to write
-pub fn write_tcf_doc<W : Write, C : Corpus, S: StringCompression>(
-    out : &mut W, doc : Document, index : &mut Index, meta_keys: &Vec<String>, 
-    corpus : &C, s :&S) -> Result<(), TCFWriteError> {
-    out.write(doc_content_to_bytes(doc, &meta_keys, corpus.get_meta(), index, s)?.as_slice())?;
+/// * `meta` - The corpus to write
+pub fn write_tcf_doc<W : Write, S: StringCompression>(
+    out : &mut W, doc : Document, index : &mut Index,
+    meta : &HashMap<String, LayerDesc>, s :&S) -> Result<(), TCFWriteError> {
+    let mut meta_keys : Vec<String> = meta.keys().cloned().collect();
+    meta_keys.sort();
+    out.write(doc_content_to_bytes(doc, &meta_keys, meta, index, s)?.as_slice())?;
     Ok(())
 }
 
