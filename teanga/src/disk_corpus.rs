@@ -127,7 +127,8 @@ impl Corpus for DiskCorpus {
         let doc = Document::new(content, &self.meta)?;
         let id = teanga_id(&self.order, &doc);
         self.order.push(id.clone());
-        self.insert(id.clone(), doc);
+        self.insert(id.clone(), doc)
+            .map_err(|e| TeangaError::ModelError(e.to_string()))?;
         Ok(id)
     }
 
@@ -150,16 +151,20 @@ impl Corpus for DiskCorpus {
                 format!("Cannot find document in order vector: {}", id)))?;
             self.order.remove(n);
             self.order.insert(n, new_id.clone());
-            self.remove(id);
-            self.insert(new_id.clone(), doc);
+            self.remove(id)
+                .map_err(|e| TeangaError::ModelError(e.to_string()))?;
+            self.insert(new_id.clone(), doc)
+                .map_err(|e| TeangaError::ModelError(e.to_string()))?;
         } else {
-            self.insert(id.to_string(), doc);
+            self.insert(id.to_string(), doc)
+                .map_err(|e| TeangaError::ModelError(e.to_string()))?;
         }
         Ok(new_id)
     }
 
     fn remove_doc(&mut self, id : &str) -> TeangaResult<()> {
-        self.remove(id);
+        self.remove(id)
+            .map_err(|e| TeangaError::ModelError(e.to_string()))?;
         self.order.retain(|x| x != id);
         Ok(())
     }

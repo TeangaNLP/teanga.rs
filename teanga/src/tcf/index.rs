@@ -178,7 +178,7 @@ mod tests {
 
     #[test]
     fn test_index_values() {
-        let mut index = Index::new();
+        let index = Index::new();
         index.idx(&"a".to_string());
         index.idx(&"b".to_string());
         index.idx(&"c".to_string());
