@@ -162,7 +162,8 @@ pub fn read_tcf<R: Read, C: WriteableCorpus>(
     let mut meta_bytes = vec![0u8; len];
     input.read_exact(meta_bytes.as_mut_slice())?;
     let meta : HashMap<String, LayerDesc> = from_reader(meta_bytes.as_slice())?;
-    corpus.set_meta(meta.clone());
+    corpus.set_meta(meta.clone()).
+        map_err(|e| TCFReadError::TeangaError(e))?;
     let mut string_compression_byte = [0u8; 1];
     input.read_exact(string_compression_byte.as_mut_slice())?;
     let string_compression = match string_compression_byte[0] {

@@ -28,7 +28,8 @@ impl <'de,'a, C: WriteableCorpus> Visitor<'de> for TeangaVisitor2<'a, C> {
         while let Some(ref key) = map.next_key::<String>()? {
             if key == "_meta" {
                 let data = map.next_value::<HashMap<String, LayerDesc>>()?;
-                self.0.set_meta(data);
+                self.0.set_meta(data)
+                    .map_err(serde::de::Error::custom)?;
             } else if !self.1 && key == "_order" {
                 order = Some(map.next_value::<Vec<String>>()?);
             } else if !self.1 {
@@ -40,7 +41,8 @@ impl <'de,'a, C: WriteableCorpus> Visitor<'de> for TeangaVisitor2<'a, C> {
             }
         }
         if let Some(order) = order {
-            self.0.set_order(order);
+            self.0.set_order(order)
+                .map_err(serde::de::Error::custom)?;
         }
         Ok(())
     }

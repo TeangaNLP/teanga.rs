@@ -270,16 +270,6 @@ impl Corpus for DiskCorpus {
         &self.meta
     }
 
-    /// Get the meta information for the corpus
-    ///
-    /// # Returns
-    ///
-    /// The meta information for the corpus
-    fn get_meta_mut(&mut self) -> &mut HashMap<String, LayerDesc> {
-        &mut self.meta
-    }
-
-
     /// Get the order of the documents in the corpus
     ///
     /// # Returns
@@ -292,11 +282,75 @@ impl Corpus for DiskCorpus {
 
 
 impl WriteableCorpus for DiskCorpus {
-    fn set_meta(&mut self, meta : HashMap<String, LayerDesc>) {
+    fn set_meta(&mut self, meta : HashMap<String, LayerDesc>) -> TeangaResult<()> {
         self.meta = meta;
+        let db = open_db(&self.path)?;
+        for m in db.scan_prefix(&[META_PREFIX]) {
+            db.remove(m?.0)?;
+        }
+        for (name, layer_desc) in &self.meta {
+            let mut id_bytes = Vec::new();
+            id_bytes.push(META_PREFIX);
+            id_bytes.extend(name.clone().as_bytes());
+            db.insert(id_bytes, to_stdvec(layer_desc)?)
+                .map_err(|e| TeangaError::DBError(e))?;
+        }
+        Ok(())
+        
     }
-    fn set_order(&mut self, order : Vec<String>) {
+    fn set_order(&mut self, order : Vec<String>) -> TeangaResult<()> {
         self.order = order;
+        let db = open_db(&self.path)?;
+        db.insert(ORDER_BYTES.to_vec(), to_stdvec(&self.order)?)
+            .map_err(|e| TeangaError::DBError(e))?;
+        Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::read_yaml;
+
+    #[test]
+    fn test_load_disk_corpus() {
+        {
+        let mut corpus = DiskCorpus::new("tmp2").unwrap();
+        let data = "_meta:
+    lemmas:
+        type: seq
+        base: tokens
+        data: string
+    oewn:
+        type: element
+        base: tokens
+        data: string
+    pos:
+        type: seq
+        base: tokens
+        data: string
+    sentence:
+        type: div
+        base: text
+    text:
+        type: characters
+    tokens:
+        type: span
+        base: text
+    wn30_key:
+        type: element
+        base: tokens
+        data: string
+/KOa:
+    text: The quick brown fox jumps over the lazy dog.";
+        read_yaml(data.as_bytes(), &mut corpus).unwrap();
+        assert!(!corpus.get_meta().is_empty());
+        }
+        {
+            let corpus = DiskCorpus::new("tmp2").unwrap();
+            assert!(!corpus.get_meta().is_empty());
+        }
+    }
+}
+
 

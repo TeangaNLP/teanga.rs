@@ -258,16 +258,6 @@ impl Corpus for TransactionCorpus {
         &self.meta
     }
 
-    /// Get the meta information for the corpus
-    ///
-    /// # Returns
-    ///
-    /// The meta information for the corpus
-    fn get_meta_mut(&mut self) -> &mut HashMap<String, LayerDesc> {
-        &mut self.meta
-    }
-
-
     /// Get the order of the documents in the corpus
     ///
     /// # Returns
@@ -287,8 +277,9 @@ impl WriteableCorpus for TransactionCorpus {
     ///
     /// # Returns
     /// The disk corpus object
-    fn set_meta(&mut self, meta: HashMap<String, LayerDesc>) {
+    fn set_meta(&mut self, meta: HashMap<String, LayerDesc>) -> TeangaResult<()> {
         self.meta = meta;
+        Ok(())
     }
 
     /// Directly set the order. This will be written on commit
@@ -298,8 +289,9 @@ impl WriteableCorpus for TransactionCorpus {
     ///
     /// # Returns
     /// The disk corpus object
-    fn set_order(&mut self, order: Vec<String>) {
+    fn set_order(&mut self, order: Vec<String>) -> TeangaResult<()> {
         self.order = order;
+        Ok(())
     }
 }
     

@@ -22,7 +22,7 @@ impl TextMatchCondition for Vec<String> {
     }
 }
 
-struct AnyText;
+pub struct AnyText;
 
 impl TextMatchCondition for AnyText {
     fn matches(&self, _text: &str) -> bool {
@@ -68,7 +68,7 @@ impl DataMatchCondition for Vec<TeangaData> {
     }
 }
 
-struct AnyData;
+pub struct AnyData;
 
 impl DataMatchCondition for AnyData {
     fn matches(&self, _data: &TeangaData) -> bool {

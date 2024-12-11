@@ -71,7 +71,8 @@ impl PyDiskCorpus {
 
     #[setter]
     fn set_meta(&mut self, meta: HashMap<String, PyLayerDesc>) -> PyResult<()> {
-        self.0.set_meta(meta.iter().map(|(k,v)| (k.clone(), v.0.clone())).collect());
+        self.0.set_meta(meta.iter().map(|(k,v)| (k.clone(), v.0.clone())).collect())
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?;
         Ok(())
     }
 
@@ -82,7 +83,8 @@ impl PyDiskCorpus {
 
     #[setter]
     fn set_order(&mut self, order: Vec<String>) -> PyResult<()> {
-        self.0.set_order(order);
+        self.0.set_order(order)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?;
         Ok(())
     }
 

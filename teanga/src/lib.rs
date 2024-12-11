@@ -138,9 +138,6 @@ pub trait Corpus {
     /// Get the layer metadata
     fn get_meta(&self) -> &HashMap<String, LayerDesc>;
 
-    /// Get the layer metadata as a mutable reference
-    fn get_meta_mut(&mut self) -> &mut HashMap<String, LayerDesc>;
-
     /// Get the order of the documents in the corpus
     fn get_order(&self) -> &Vec<String>;
 
@@ -231,9 +228,9 @@ pub trait Corpus {
 /// A corpus where the metadata and order can be changed
 pub trait WriteableCorpus : Corpus {
     /// Set the metadata of the corpus
-    fn set_meta(&mut self, meta : HashMap<String, LayerDesc>);
+    fn set_meta(&mut self, meta : HashMap<String, LayerDesc>) -> TeangaResult<()>;
     /// Set the order of the documents in the corpus
-    fn set_order(&mut self, order : Vec<String>);
+    fn set_order(&mut self, order : Vec<String>) -> TeangaResult<()>;
 }
 
 
@@ -295,7 +292,7 @@ impl Corpus for SimpleCorpus {
             Ok(mut doc) => {
                 for (key, layer) in content {
                     let layer_desc = self.meta.get(&key).ok_or_else(|| TeangaError::ModelError(
-                        format!("Layer {} does not exist", key)))?;
+                        format!("Layer {} is not described in meta", key)))?;
                     doc.set(&key, layer.into_layer(layer_desc)?);
                 }
                 doc
@@ -340,22 +337,20 @@ impl Corpus for SimpleCorpus {
         &self.meta
     }
 
-    fn get_meta_mut(&mut self) -> &mut HashMap<String, LayerDesc> {
-        &mut self.meta
-    }
-
     fn get_order(&self) -> &Vec<String> {
         &self.order
     }
 }
 
 impl WriteableCorpus for SimpleCorpus {
-    fn set_meta(&mut self, meta : HashMap<String, LayerDesc>) {
+    fn set_meta(&mut self, meta : HashMap<String, LayerDesc>) -> TeangaResult<()> {
         self.meta = meta;
+        Ok(())
     }
 
-    fn set_order(&mut self, order : Vec<String>) {
+    fn set_order(&mut self, order : Vec<String>) -> TeangaResult<()> {
         self.order = order;
+        Ok(())
     }
 }
 
@@ -544,7 +539,8 @@ mod test {
         let mut corpus = DiskCorpus::new("tmp").unwrap();
         corpus.add_layer_meta("text".to_string(), LayerType::characters, None, Some(DataType::Enum(vec!["a".to_string(),"b".to_string()])), None, None, None, HashMap::new()).unwrap();
         corpus.add_doc(vec![("text".to_string(), "test")]).unwrap();
-        let _corpus = DiskCorpus::new("tmp");
+        let corpus2 = DiskCorpus::new("tmp").unwrap();
+        assert!(!corpus2.get_meta().is_empty());
     }
 
     #[test]
