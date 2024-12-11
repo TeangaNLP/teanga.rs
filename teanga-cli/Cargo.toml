@@ -13,5 +13,5 @@ serde_json = "1.0.116"
 teanga = { path = "../teanga" }
 
 [[bin]]
-name = "teanga"
+name = "teanga-cli"
 path = "src/main.rs"

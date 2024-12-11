@@ -555,3 +555,27 @@ pub enum TeangaData {
     Link(u32),
     TypedLink(u32, String)
 }
+
+impl Into<TeangaData> for String {
+    fn into(self) -> TeangaData {
+        TeangaData::String(self)
+    }
+}
+
+impl Into<TeangaData> for &str {
+    fn into(self) -> TeangaData {
+        TeangaData::String(self.to_string())
+    }
+}
+
+impl Into<TeangaData> for u32 {
+    fn into(self) -> TeangaData {
+        TeangaData::Link(self)
+    }
+}
+
+impl Into<TeangaData> for (u32, String) {
+    fn into(self) -> TeangaData {
+        TeangaData::TypedLink(self.0, self.1)
+    }
+}

@@ -8,7 +8,7 @@
 //! ```
 //! use teanga::query::{QueryBuilder, Query};
 //! let query = QueryBuilder::new()
-//!     .text("words".to_string(), "fox".to_string())
+//!     .text("words", "fox")
 //!     .build();
 //! ```
 use std::collections::{HashMap, HashSet};
@@ -138,134 +138,138 @@ impl QueryBuilder {
     }
 
     /// Add a text match condition to the query
-    pub fn text(self, layer : String, text: String) -> QueryBuilder {
+    pub fn text(self, layer : &str, text: &str) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
-            q.push(Query::Text(layer, text));
+            q.push(Query::Text(layer.to_string(), text.to_string()));
             QueryBuilder(Query::And(q))
         } else {
-            QueryBuilder(Query::And(vec![Query::Text(layer, text), self.0]))
+            QueryBuilder(Query::And(vec![Query::Text(layer.to_string(), text.to_string()), self.0]))
         }
     }
 
     /// Add a text not match condition to the query
-    pub fn text_not(self, layer : String, text: String) -> QueryBuilder {
+    pub fn text_not(self, layer : &str, text: &str) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
-            q.push(Query::TextNot(layer, text));
+            q.push(Query::TextNot(layer.to_string(), text.to_string()));
             QueryBuilder(Query::And(q))
         } else {
-            QueryBuilder(Query::And(vec![Query::TextNot(layer, text), self.0]))
+            QueryBuilder(Query::And(vec![Query::TextNot(layer.to_string(), text.to_string()), self.0]))
         }
     }
 
     /// Add a data match condition to the query
-    pub fn value(self, layer : String, value: TeangaData) -> QueryBuilder {
+    pub fn value<T : Into<TeangaData>>(self, layer : &str, value: T) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
-            q.push(Query::Value(layer, value));
+            q.push(Query::Value(layer.to_string(), value.into()));
             QueryBuilder(Query::And(q))
         } else {
-            QueryBuilder(Query::And(vec![Query::Value(layer, value), self.0]))
+            QueryBuilder(Query::And(vec![Query::Value(layer.to_string(), value.into()), self.0]))
         }
     }
 
     /// Add a data not match condition to the query
-    pub fn value_not(self, layer : String, value: TeangaData) -> QueryBuilder {
+    pub fn value_not<T : Into<TeangaData>>(self, layer : &str, value: T) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
-            q.push(Query::ValueNot(layer, value));
+            q.push(Query::ValueNot(layer.to_string(), value.into()));
             QueryBuilder(Query::And(q))
         } else {
-            QueryBuilder(Query::And(vec![Query::ValueNot(layer, value), self.0]))
+            QueryBuilder(Query::And(vec![Query::ValueNot(layer.to_string(), value.into()), self.0]))
         }
     }
 
     /// Add a less than condition to the query
-    pub fn less_than(self, layer : String, value: TeangaData) -> QueryBuilder {
+    pub fn less_than<T : Into<TeangaData>>(self, layer : &str, value: T) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
-            q.push(Query::LessThan(layer, value));
+            q.push(Query::LessThan(layer.to_string(), value.into()));
             QueryBuilder(Query::And(q))
         } else {
-            QueryBuilder(Query::And(vec![Query::LessThan(layer, value), self.0]))
+            QueryBuilder(Query::And(vec![Query::LessThan(layer.to_string(), value.into()), self.0]))
         }
     }
 
     /// Add a less than or equal condition to the query
-    pub fn less_than_equal(self, layer : String, value: TeangaData) -> QueryBuilder {
+    pub fn less_than_equal<T : Into<TeangaData>>(self, layer : &str, value: T) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
-            q.push(Query::LessThanEqual(layer, value));
+            q.push(Query::LessThanEqual(layer.to_string(), value.into()));
             QueryBuilder(Query::And(q))
         } else {
-            QueryBuilder(Query::And(vec![Query::LessThanEqual(layer, value), self.0]))
+            QueryBuilder(Query::And(vec![Query::LessThanEqual(layer.to_string(), value.into()), self.0]))
         }
     }
 
     /// Add a greater than condition to the query
-    pub fn greater_than(self, layer : String, value: TeangaData) -> QueryBuilder {
+    pub fn greater_than<T : Into<TeangaData>>(self, layer : &str, value: T) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
-            q.push(Query::GreaterThan(layer, value));
+            q.push(Query::GreaterThan(layer.to_string(), value.into()));
             QueryBuilder(Query::And(q))
         } else {
-            QueryBuilder(Query::And(vec![Query::GreaterThan(layer, value), self.0]))
+            QueryBuilder(Query::And(vec![Query::GreaterThan(layer.to_string(), value.into()), self.0]))
         }
     }
 
     /// Add a greater than or equal condition to the query
-    pub fn greater_than_equal(self, layer : String, value: TeangaData) -> QueryBuilder {
+    pub fn greater_than_equal<T : Into<TeangaData>>(self, layer : &str, value: T) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
-            q.push(Query::GreaterThanEqual(layer, value));
+            q.push(Query::GreaterThanEqual(layer.to_string(), value.into()));
             QueryBuilder(Query::And(q))
         } else {
-            QueryBuilder(Query::And(vec![Query::GreaterThanEqual(layer, value), self.0]))
+            QueryBuilder(Query::And(vec![Query::GreaterThanEqual(layer.to_string(), value.into()), self.0]))
         }
     }
 
     /// Add an in condition to the query
-    pub fn in_(self, layer : String, values: HashSet<TeangaData>) -> QueryBuilder {
+    pub fn in_<T : Into<TeangaData>>(self, layer : &str, values: HashSet<T>) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
-            q.push(Query::In(layer, values));
+            q.push(Query::In(layer.to_string(), values.into_iter().map(|x| x.into()).collect()));
             QueryBuilder(Query::And(q))
         } else {
-            QueryBuilder(Query::And(vec![Query::In(layer, values), self.0]))
+            QueryBuilder(Query::And(vec![Query::In(layer.to_string(), 
+                        values.into_iter().map(|x| x.into()).collect()),
+                    self.0]))
         }
     }
 
     /// Add a not in condition to the query
-    pub fn not_in(self, layer : String, values: HashSet<TeangaData>) -> QueryBuilder {
+    pub fn not_in<T : Into<TeangaData>>(self, layer : &str, values: HashSet<T>) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
-            q.push(Query::NotIn(layer, values));
+            q.push(Query::NotIn(layer.to_string(), values.into_iter().map(|x| x.into()).collect()));
             QueryBuilder(Query::And(q))
         } else {
-            QueryBuilder(Query::And(vec![Query::NotIn(layer, values), self.0]))
+            QueryBuilder(Query::And(vec![Query::NotIn(layer.to_string(), 
+                        values.into_iter().map(|x| x.into()).collect()),
+                    self.0]))
         }
     }
 
     /// Add a data regex condition to the query
-    pub fn regex(self, layer : String, regex: Regex) -> QueryBuilder {
+    pub fn regex(self, layer : &str, regex: Regex) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
-            q.push(Query::Regex(layer, regex));
+            q.push(Query::Regex(layer.to_string(), regex));
             QueryBuilder(Query::And(q))
         } else {
-            QueryBuilder(Query::And(vec![Query::Regex(layer, regex), self.0]))
+            QueryBuilder(Query::And(vec![Query::Regex(layer.to_string(), regex), self.0]))
         }
     }
 
     /// Add a text regex condition to the query
-    pub fn text_regex(self, layer : String, regex: Regex) -> QueryBuilder {
+    pub fn text_regex(self, layer : &str, regex: Regex) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
-            q.push(Query::TextRegex(layer, regex));
+            q.push(Query::TextRegex(layer.to_string(), regex));
             QueryBuilder(Query::And(q))
         } else {
-            QueryBuilder(Query::And(vec![Query::TextRegex(layer, regex), self.0]))
+            QueryBuilder(Query::And(vec![Query::TextRegex(layer.to_string(), regex), self.0]))
         }
     }
 
@@ -303,7 +307,7 @@ impl QueryBuilder {
     }
 
     /// Add an exists condition to the query
-    pub fn exists(self, field: String) -> QueryBuilder {
+    pub fn exists(self, field: &str) -> QueryBuilder {
         if let Query::And(and) = self.0 {
             let mut q = and;
             q.push(Query::Exists(field.to_string()));
@@ -344,8 +348,31 @@ mod test {
             .layer("lemma", vec!["the", "quick", "brown", "fox", "jump", "over", "the", "lazy", "dog", "."]).unwrap()
             .add().unwrap();
         let mut iter = corpus.search(QueryBuilder::new()
-            .text("words".to_string(), "fox".to_string())
+            .text("words", "fox")
             .build());
+        assert!(iter.next().is_some());
+    }
+
+    #[test]
+    fn test_query2() {
+        let mut corpus = SimpleCorpus::new();
+        corpus.build_layer("text").add().unwrap();
+        corpus.build_layer("words")
+            .layer_type(LayerType::span)
+            .base("text").add().unwrap();
+        corpus.build_layer("oewn")
+            .layer_type(LayerType::element)
+            .base("words")
+            .data(DataType::String).add().unwrap();
+        let _doc = corpus.build_doc()
+            .layer("text", "The Fulton_County_Grand_Jury said Friday").unwrap()
+            .layer("words", vec![(0, 3), (4, 28), (29, 33)]).unwrap()
+            .layer("oewn", vec![(1, "oewn-00031563-n"), (2, "oewn-01011267-v")]).unwrap()
+            .add().unwrap();
+        let query = QueryBuilder::new()
+            .value("oewn", "oewn-00031563-n".to_string())
+            .build();
+        let mut iter = corpus.search(query);
         assert!(iter.next().is_some());
     }
 }
