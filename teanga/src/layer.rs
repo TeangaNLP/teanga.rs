@@ -294,7 +294,7 @@ impl Layer {
                         Ok(indexes.map(|(i, j)| (i as usize, j as usize)).collect())
                     } else {
                         let subindexes = doc.indexes(&base_layer, target_layer, meta)?;
-                        Ok(indexes.map(|(i, j)| (subindexes[i as usize].0, subindexes[j as usize].1)).collect())
+                        Ok(indexes.map(|(i, j)| (subindexes[i as usize].0, subindexes[(j - 1) as usize].1)).collect())
                     }
                 } else {
                         Err(TeangaError::ModelError(

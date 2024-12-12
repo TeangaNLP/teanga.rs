@@ -94,9 +94,11 @@ impl Document {
                 char_layer = char_layer_desc.base.as_ref().unwrap();
                 char_layer_desc = meta.get(char_layer).unwrap();
             }
-            let indexes = self.indexes(layer, char_layer, meta)?;
             if let Some(character_layer) = self.content.get(char_layer) {
-                if let Some(characters) = character_layer.characters() {
+                if char_layer == layer {
+                    return Ok(character_layer.characters().into_iter().collect());
+                } else if let Some(characters) = character_layer.characters() {
+                    let indexes = self.indexes(layer, char_layer, meta)?;
                     let mut text = Vec::new();
                     for (start, end) in indexes {
                         text.push(&characters[start as usize..end as usize]);
@@ -240,3 +242,38 @@ impl<'a, C : Corpus> DocumentBuilder<'a, C> {
         self.0.add_doc(self.1)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::SimpleCorpus;
+    use crate::layer::{LayerType, DataType};
+
+    #[test]
+    fn test_corpus_layers() {
+        let mut corpus = SimpleCorpus::new();
+        corpus.build_layer("text").add().unwrap();
+        corpus.build_layer("tokens")
+            .base("text")
+            .layer_type(LayerType::span)
+            .add().unwrap();
+        corpus.build_layer("entities")
+            .base("tokens")
+            .layer_type(LayerType::span)
+            .data(DataType::String)
+            .add().unwrap();
+        let doc = corpus.build_doc()
+            .layer("text", "The White House is in Washington.").unwrap()
+            .layer("tokens", vec![
+                (0, 3), (4, 9), (10, 15), (16, 18), (19,21), (22,32), (32,33)]).unwrap()
+            .layer("entities", vec![
+                (1,3,"LOC"), (5,6,"ORG")]).unwrap()
+            .add().unwrap();
+        let doc = corpus.get_doc_by_id(&doc).unwrap();
+        assert_eq!(doc.text("text", corpus.get_meta()).unwrap(), vec!["The White House is in Washington."]);
+        assert_eq!(doc.text("tokens", corpus.get_meta()).unwrap(), vec!["The", "White", "House", "is", "in", "Washington", "."]);
+        eprintln!("{:?}", doc.indexes("entities", "text", corpus.get_meta()));
+        assert_eq!(doc.text("entities", corpus.get_meta()).unwrap(), vec!["White House", "Washington"]);
+    }
+}
+
