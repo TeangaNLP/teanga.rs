@@ -418,6 +418,17 @@ impl Layer {
         }
     }
 
+    /// Get the data and indexes for the layer
+    pub fn indexes_data(&self, layer_name : &str, target_layer: &str, doc : &Document, 
+        meta : &HashMap<String, LayerDesc>) -> TeangaResult<Vec<(usize, usize, TeangaData)>> {
+        Ok(self.indexes(layer_name, target_layer, doc, meta)?
+            .into_iter()
+            .zip(self.data(meta.get(layer_name).ok_or_else(
+                || TeangaError::LayerNotFoundError(layer_name.to_string()))?))
+            .map(|(i, d)| (i.0, i.1, d))
+            .collect())
+    }
+
     /// Get the number of annotatable elements in this layer
     pub fn len(&self) -> usize {
         match self {

@@ -157,6 +157,27 @@ impl Document {
         }
     }
 
+    /// Get the indexes and the data associated with it
+    ///
+    /// # Arguments
+    ///
+    /// * `layer` - The layer to get the indexes from
+    /// * `target_layer` - The layer to get the indexes in
+    /// * `meta` - The metadata for the document
+    ///
+    /// # Returns
+    ///
+    /// A vector of tuples, each tuple representing a span of text and the data
+    pub fn indexes_data(&self, layer: &str, target_layer: &str,
+        meta : &HashMap<String, LayerDesc>)
+        -> TeangaResult<Vec<(usize, usize, TeangaData)>> {
+        if let Some(layer_val) = self.content.get(layer) {
+            layer_val.indexes_data(layer, target_layer, &self, meta)
+        } else {
+            Err(TeangaError::LayerNotFoundError(layer.to_string()))
+        }
+    }
+
     /// Get the names of layers in this document
     pub fn keys(&self) -> Vec<String> {
         self.content.keys().cloned().collect()
