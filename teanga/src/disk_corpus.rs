@@ -200,15 +200,11 @@ impl Corpus for DiskCorpus {
 impl WriteableCorpus for DiskCorpus {
     fn set_meta(&mut self, meta : HashMap<String, LayerDesc>) -> TeangaResult<()> {
         self.meta = meta;
-        self.db.insert(META_BYTES.to_vec(), to_stdvec(&self.meta)?)
-            .map_err(|e| TeangaError::DBError(e))?;
         Ok(())
         
     }
     fn set_order(&mut self, order : Vec<String>) -> TeangaResult<()> {
         self.order = order;
-        self.db.insert(ORDER_BYTES.to_vec(), to_stdvec(&self.order)?)
-            .map_err(|e| TeangaError::DBError(e))?;
         Ok(())
     }
 }
