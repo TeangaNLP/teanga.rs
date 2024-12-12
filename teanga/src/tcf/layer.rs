@@ -164,7 +164,7 @@ impl TCFLayer {
         }
     }
 
-    pub fn to_layer<S : StringCompression>(self, index : &mut Index, ld : &LayerDesc, s : &S) -> Layer {
+    pub fn to_layer<S : StringCompression>(self, index : &Index, ld : &LayerDesc, s : &S) -> Layer {
         match self {
             TCFLayer::Characters(c) => {
                 let s = s.decompress(&c).unwrap();

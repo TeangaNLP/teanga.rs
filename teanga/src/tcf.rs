@@ -10,10 +10,10 @@ mod tcf_index;
 mod type_index;
 mod write;
 
-pub use write::{write_tcf, write_tcf_with_config, write_tcf_header, write_tcf_config, write_tcf_doc, doc_content_to_bytes, TCFWriteError};
-pub use read::{read_tcf, bytes_to_doc, TCFReadError};
+pub use write::{write_tcf, write_tcf_with_config, write_tcf_header, write_tcf_config, write_tcf_header_compression, write_tcf_doc, doc_content_to_bytes, TCFWriteError};
+pub use read::{read_tcf, read_tcf_header, read_tcf_doc, bytes_to_doc, TCFReadError};
 pub use index::{Index, IndexResult};
-pub use string::{StringCompression, StringCompressionError, NoCompression, SmazCompression, ShocoCompression};
+pub use string::{StringCompression, SupportedStringCompression, StringCompressionError, NoCompression, SmazCompression, ShocoCompression};
 
 /// A TCF Result type
 pub type TCFResult<T> = Result<T, TCFError>;

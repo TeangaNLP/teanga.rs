@@ -8,6 +8,7 @@ use std::io::{Read, BufRead, BufReader};
 
 use crate::tcf::TCF_VERSION;
 use crate::tcf::string::StringCompression;
+use crate::tcf::string::SupportedStringCompression;
 use crate::tcf::string::ShocoCompression;
 use crate::tcf::string::read_shoco_model;
 use crate::tcf::{TCFResult, TCFError};
@@ -29,7 +30,7 @@ pub enum ReadLayerResult<Layer> {
 }
 
 fn read_layer<R : BufRead, S : StringCompression>(bytes : &mut R, 
-    idx : &mut Index, layer_desc : &LayerDesc, s : &S) -> TCFResult<ReadLayerResult<Layer>> {
+    idx : &Index, layer_desc : &LayerDesc, s : &S) -> TCFResult<ReadLayerResult<Layer>> {
     match TCFLayer::from_reader(bytes, layer_desc, s)? {
         ReadLayerResult::Layer(tcf) => Ok(ReadLayerResult::Layer(tcf.to_layer(idx, layer_desc, s))),
         ReadLayerResult::Empty => Ok(ReadLayerResult::Empty),
@@ -100,8 +101,10 @@ pub enum ReadDocError {
 /// # Returns
 ///
 /// A new document object
-pub fn read_doc<R : BufRead, S : StringCompression>(input : &mut R, meta_keys : &Vec<String>,
-    meta : &HashMap<String, LayerDesc>, index : &mut Index, s : &S) -> Result<Option<Document>, ReadDocError> {
+pub fn read_tcf_doc<R : BufRead, S : StringCompression>(input : &mut R,
+    meta : &HashMap<String, LayerDesc>, index : &Index, s : &S) -> Result<Option<Document>, ReadDocError> {
+    let mut meta_keys : Vec<String> = meta.keys().cloned().collect();
+    meta_keys.sort();
     let mut layers = Vec::new();
     for key in meta_keys.iter() {
         let layer_desc = meta.get(key)
@@ -148,6 +151,19 @@ pub enum TCFReadError {
 pub fn read_tcf<R: Read, C: WriteableCorpus>(
     input : R, corpus : &mut C) -> Result<(), TCFReadError> {
     let mut input = BufReader::new(input);
+    let (meta, string_compression) = read_tcf_header(&mut input)?;
+    corpus.set_meta(meta.clone())
+        .map_err(|e| TCFReadError::TeangaError(e))?;
+    let cache = Index::new();
+    while let Some(doc) = read_tcf_doc(&mut input, &meta, &cache, &string_compression)? {
+        corpus.add_doc(doc)?;
+    }
+    Ok(())
+
+}
+
+pub fn read_tcf_header<R: Read>(
+    input : &mut R) -> Result<(HashMap<String, LayerDesc>, SupportedStringCompression), TCFReadError> {
     let mut format_id_bytes = vec![0u8; 8];
     input.read_exact(format_id_bytes.as_mut_slice())?;
     if format_id_bytes[0..6] != *"TEANGA".as_bytes() {
@@ -162,8 +178,6 @@ pub fn read_tcf<R: Read, C: WriteableCorpus>(
     let mut meta_bytes = vec![0u8; len];
     input.read_exact(meta_bytes.as_mut_slice())?;
     let meta : HashMap<String, LayerDesc> = from_reader(meta_bytes.as_slice())?;
-    corpus.set_meta(meta.clone()).
-        map_err(|e| TCFReadError::TeangaError(e))?;
     let mut string_compression_byte = [0u8; 1];
     input.read_exact(string_compression_byte.as_mut_slice())?;
     let string_compression = match string_compression_byte[0] {
@@ -171,18 +185,12 @@ pub fn read_tcf<R: Read, C: WriteableCorpus>(
         1 => crate::tcf::string::SupportedStringCompression::Smaz,
         2 => crate::tcf::string::SupportedStringCompression::Shoco(ShocoCompression::default()),
         3 => {
-            let model = read_shoco_model(&mut input)?;
+            let model = read_shoco_model(input)?;
             crate::tcf::string::SupportedStringCompression::Shoco(model)
         }
         _ => return Err(TCFReadError::TCFError(ReadDocError::TCFError(TCFError::InvalidByte)))
     };
-     let mut cache = Index::new();
-    let mut meta_keys : Vec<String> = meta.keys().cloned().collect();
-    meta_keys.sort();
-    while let Some(doc) = read_doc(&mut input, &meta_keys, &meta, &mut cache, &string_compression)? {
-        corpus.add_doc(doc)?;
-    }
-    Ok(())
+    Ok((meta, string_compression))
 }
 
 #[cfg(test)]

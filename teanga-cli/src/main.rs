@@ -1,5 +1,5 @@
 use clap::{Parser, ValueEnum};
-use teanga::TransactionCorpus;
+use teanga::DiskCorpus;
 use std::fs::File;
 use flate2;
 use std::io::{BufReader, BufRead};
@@ -7,6 +7,10 @@ use teanga::Corpus;
 use teanga::TCFConfig;
 use teanga::Document;
 use teanga::TeangaError;
+use teanga::read_yaml_meta;
+use teanga::read_json;
+use teanga::read_jsonl;
+use teanga::read_yaml;
 
 // for CBOR conversion
 use std::io::BufWriter;
@@ -120,11 +124,12 @@ struct ConvertCommand {
 
 impl LoadCommand {
     fn run(&self) -> Result<(), String> {
-        let mut corpus = TransactionCorpus::new(&self.db)
+        let mut corpus = DiskCorpus::new(&self.db)
             .map_err(|e| format!("Failed to open corpus: {}", e))?;
         if let Some(meta) = &self.meta {
-            corpus.read_yaml_header(File::open(meta)
-                .map_err(|e| format!("Failed to open meta file: {}", e))?)
+            read_yaml_meta(File::open(meta)
+                .map_err(|e| format!("Failed to open meta file: {}", e))?,
+                &mut corpus)
                 .map_err(|e| format!("Failed to read meta file: {}", e))?;
         }
         let mut file = if self.file.ends_with(".gz") {
@@ -136,13 +141,13 @@ impl LoadCommand {
                 .map_err(|e| format!("Failed to open file: {}", e))?) as Box<dyn std::io::Read>
         };
         if self.jsonl {
-            corpus.read_jsonl(&mut BufReader::new(file))
+            read_jsonl(&mut BufReader::new(file), &mut corpus)
                 .map_err(|e| format!("Failed to read file: {}", e))?;
         } else if self.file.ends_with(".json") || self.file.ends_with(".json.gz") {
-            corpus.read_json(&mut file)
+            read_json(&mut file, &mut corpus)
                 .map_err(|e| format!("Failed to read file: {}", e))?;
         } else {
-            corpus.read_yaml(&mut file)
+            read_yaml(&mut file, &mut corpus)
                 .map_err(|e| format!("Failed to read file: {}", e))?;
         }
         Ok(())
@@ -218,7 +223,7 @@ impl ConvertCommand {
                     StringCompression::Generate => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::GenerateShocoModel(self.compression_bytes)),
                 };
                 if progressive {
-                    let (mut cache, keys) = teanga::write_tcf_header(&mut output, corpus.get_meta())
+                    let (mut cache, _) = teanga::write_tcf_header(&mut output, corpus.get_meta())
                         .map_err(|e| format!("Failed to write TCF: {}", e))?;
                     let replay = std::cell::RefCell::new(Vec::new());
                     let do_replay = std::cell::RefCell::new(true);
@@ -237,13 +242,13 @@ impl ConvertCommand {
                         .map_err(|e| format!("Failed to write TCF: {}", e))?;
                     let replay = replay.clone();
                     for doc in replay.borrow().iter() {
-                        teanga::write_tcf_doc(&mut output, doc.clone(), &mut cache, &keys, &corpus, &compressor)
+                        teanga::write_tcf_doc(&mut output, doc.clone(), &mut cache, corpus.get_meta(), &compressor)
                             .map_err(|e| format!("Failed to write TCF: {}", e))?;
                     }
                     *do_replay.borrow_mut() = false;
                     for doc in iter {
                         let doc = doc.map_err(|e| format!("Failed to read document: {}", e))?;
-                        teanga::write_tcf_doc(&mut output, doc, &mut cache, &keys, &corpus, &compressor)
+                        teanga::write_tcf_doc(&mut output, doc, &mut cache, corpus.get_meta(), &compressor)
                             .map_err(|e| format!("Failed to write TCF: {}", e))?;
                     }
                 } else {

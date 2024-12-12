@@ -32,22 +32,16 @@ pub mod layer_builder;
 pub mod query;
 pub mod serialization;
 pub mod match_condition;
-pub mod transaction_corpus;
 mod tcf;
 
 pub use document::{Document, DocumentContent, DocumentBuilder};
 pub use disk_corpus::DiskCorpus;
-pub use transaction_corpus::TransactionCorpus;
 pub use layer::{IntoLayer, Layer, LayerDesc, DataType, LayerType, TeangaData};
 pub use layer_builder::build_layer;
 pub use query::Query;
-pub use serialization::{read_json, read_yaml, write_json, write_yaml};
+pub use serialization::{read_json, read_yaml, write_json, write_yaml, read_yaml_meta, read_jsonl};
 pub use tcf::{write_tcf, write_tcf_with_config, read_tcf, write_tcf_header, write_tcf_config, write_tcf_doc, doc_content_to_bytes, bytes_to_doc, Index, IndexResult, TCFReadError, TCFWriteError, TCFConfig, StringCompression, StringCompressionError, StringCompressionMethod, NoCompression, SmazCompression, ShocoCompression};
 pub use match_condition::{TextMatchCondition, DataMatchCondition};
-
-const DOCUMENT_PREFIX : u8 = 0x00;
-const META_PREFIX : u8 = 0x03;
-const ORDER_BYTES : [u8;1] = [0x04];
 
 /// Trait that defines a corpus according to the Teanga Data Model
 pub trait Corpus {
@@ -539,6 +533,7 @@ mod test {
         let mut corpus = DiskCorpus::new("tmp").unwrap();
         corpus.add_layer_meta("text".to_string(), LayerType::characters, None, Some(DataType::Enum(vec!["a".to_string(),"b".to_string()])), None, None, None, HashMap::new()).unwrap();
         corpus.add_doc(vec![("text".to_string(), "test")]).unwrap();
+        drop(corpus);
         let corpus2 = DiskCorpus::new("tmp").unwrap();
         assert!(!corpus2.get_meta().is_empty());
     }

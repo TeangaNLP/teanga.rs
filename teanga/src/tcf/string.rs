@@ -10,11 +10,15 @@ use crate::document::Document;
 use crate::layer::Layer;
 use crate::tcf::write::TCFWriteError;
 
+/// Trait for compressing and decompressing strings
 pub trait StringCompression {
+    /// Compress a string
     fn compress(&self, input: &str) -> Vec<u8>;
+    /// Decompress a string
     fn decompress(&self, input: &[u8]) -> StringCompressionResult<String>;
 }
 
+/// Errors that can occur when compressing or decompressing strings
 #[derive(Error, Debug)]
 pub enum StringCompressionError {
     #[error("Smaz Error: {0}")]
@@ -23,8 +27,10 @@ pub enum StringCompressionError {
     Utf8Error(#[from] std::string::FromUtf8Error),
 }
 
+/// Result type for string compression
 pub type StringCompressionResult<T> = Result<T, StringCompressionError>;
 
+/// No compression
 pub struct NoCompression;
 
 impl StringCompression for NoCompression {
@@ -38,6 +44,7 @@ impl StringCompression for NoCompression {
     }
 }
 
+/// Use the Smaz compression algorithm. Best for English text.
 pub struct SmazCompression;
 
 impl StringCompression for SmazCompression {
@@ -52,6 +59,8 @@ impl StringCompression for SmazCompression {
     }
 }
 
+/// Use the Shoco compression algorithm. Slightly worse for English
+/// but can be fine-tuned for other languages.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShocoCompression(shoco::ShocoModel);
 
@@ -96,6 +105,8 @@ impl ShocoCompression {
     }
 }
 
+/// Enum for supported string compression methods
+#[derive(Debug,Clone)]
 pub enum SupportedStringCompression {
     None,
     Smaz,
@@ -120,6 +131,7 @@ impl StringCompression for SupportedStringCompression {
     }
 }
 
+/// Write a Shoco model to a stream
 pub fn write_shoco_model<W: Write>(out : &mut W, model : &ShocoCompression) -> std::io::Result<()> {
     let model = &model.0;
     out.write(&[model.min_chr])?;
@@ -163,6 +175,7 @@ pub fn write_shoco_model<W: Write>(out : &mut W, model : &ShocoCompression) -> s
     Ok(())
 }
 
+/// Read a Shoco model from a stream
 pub fn read_shoco_model<R: Read>(input : &mut R) -> std::io::Result<ShocoCompression> {
     let mut min_chr_buf = [0; 1];
     input.read_exact(&mut min_chr_buf)?;
