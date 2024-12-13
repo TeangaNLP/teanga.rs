@@ -12,6 +12,7 @@ use crate::tcf::write_tcf_header_compression;
 use crate::tcf::write_tcf_doc;
 use crate::tcf::Index;
 use sled::Db;
+use ciborium::{from_reader, into_writer};
 
 const DOCUMENT_PREFIX : u8 = 0x00;
 const META_BYTES : [u8;1] = [0x01];
@@ -226,6 +227,21 @@ impl Drop for DiskCorpus {
         self.commit().unwrap();
     }
 }
+
+fn open_db(path : &str) -> TeangaResult<sled::Db> {
+    sled::open(path).map_err(|e| TeangaError::DBError(e))
+}
+
+fn to_stdvec<T : Serialize>(t : &T) -> TeangaResult<Vec<u8>> {
+    let mut v = Vec::new();
+    into_writer(t,  &mut v).map_err(|e| TeangaError::DataError(e))?;
+    Ok(v)
+}
+
+fn from_bytes<T : serde::de::DeserializeOwned>(bytes : &[u8]) -> TeangaResult<T> {
+    from_reader(bytes).map_err(|e| TeangaError::DataError2(e))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

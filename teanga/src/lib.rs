@@ -17,7 +17,6 @@
 // License: Apache 2.0
 use std::collections::HashMap;
 use sled;
-use ciborium::{from_reader, into_writer};
 use sha2::{Digest, Sha256};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
@@ -346,20 +345,6 @@ impl WriteableCorpus for SimpleCorpus {
         self.order = order;
         Ok(())
     }
-}
-
-fn to_stdvec<T : Serialize>(t : &T) -> TeangaResult<Vec<u8>> {
-    let mut v = Vec::new();
-    into_writer(t,  &mut v).map_err(|e| TeangaError::DataError(e))?;
-    Ok(v)
-}
-
-fn from_bytes<T : serde::de::DeserializeOwned>(bytes : &[u8]) -> TeangaResult<T> {
-    from_reader(bytes).map_err(|e| TeangaError::DataError2(e))
-}
-
-fn open_db(path : &str) -> TeangaResult<sled::Db> {
-    sled::open(path).map_err(|e| TeangaError::DBError(e))
 }
 
 #[derive(Debug,Clone,PartialEq, Serialize,Deserialize)]
