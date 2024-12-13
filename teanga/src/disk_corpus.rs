@@ -11,6 +11,8 @@ use crate::tcf::read_tcf_doc;
 use crate::tcf::write_tcf_header_compression;
 use crate::tcf::write_tcf_doc;
 use crate::tcf::Index;
+#[cfg(feature = "fjall")]
+use fjall::{Config, PersistMode, Keyspace, PartitionCreateOptions, PartitionHandle};
 use ciborium::{from_reader, into_writer};
 
 const DOCUMENT_PREFIX : u8 = 0x00;
@@ -105,7 +107,6 @@ impl DiskCorpus {
         self.db.insert(ORDER_BYTES.to_vec(), to_stdvec(&self.order)?)?;
         let index_bytes = self.index.to_bytes();
         self.db.insert(INDEX_BYTES.to_vec(), index_bytes)?;
-        self.db.flush()?;
         Ok(())
     }
 }
@@ -256,9 +257,40 @@ impl DBImpl for SledDb {
     }
 }
 
+#[cfg(feature = "fjall")]
+struct FjallDb(PartitionHandle);
+
+#[cfg(feature = "fjall")]
+impl DBImpl for FjallDb {
+    fn insert(&self, key : Vec<u8>, value : Vec<u8>) -> TeangaResult<()> {
+        self.0.insert(key, value)?;
+        Ok(())
+    }
+
+    fn get(&self, key : Vec<u8>) -> TeangaResult<Option<Vec<u8>>> {
+        Ok(self.0.get(key)?.map(|v| v.to_vec()))
+    }
+
+    fn remove(&self, key : Vec<u8>) -> TeangaResult<()> {
+        self.0.remove(key)?;
+        Ok(())
+    }
+
+    fn flush(&self) -> TeangaResult<()> {
+        Ok(())
+    }
+}
+
 #[cfg(feature = "sled")]
 fn open_db(path : &str) -> TeangaResult<Box<dyn DBImpl>> {
     Ok(Box::new(SledDb(sled::open(path)?)))
+}
+
+#[cfg(all(not(feature = "sled"), feature = "fjall"))]
+fn open_db(path : &str) -> TeangaResult<Box<dyn DBImpl>> {
+    let keyspace = Config::new(path).open()?; 
+    let handle = keyspace.open_partition("corpus", PartitionCreateOptions::default())?;
+    Ok(Box::new(FjallDb(handle)))
 }
 
 fn to_stdvec<T : Serialize>(t : &T) -> TeangaResult<Vec<u8>> {
