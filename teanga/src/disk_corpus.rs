@@ -11,7 +11,7 @@ use crate::tcf::read_tcf_doc;
 use crate::tcf::write_tcf_header_compression;
 use crate::tcf::write_tcf_doc;
 use crate::tcf::Index;
-use sled::Db;
+use fjall::{Config, PersistMode, Keyspace, PartitionCreateOptions, PartitionHandle};
 use ciborium::{from_reader, into_writer};
 
 const DOCUMENT_PREFIX : u8 = 0x00;
@@ -19,14 +19,13 @@ const META_BYTES : [u8;1] = [0x01];
 const ORDER_BYTES : [u8;1] = [0x02];
 const INDEX_BYTES : [u8;1] = [0x03];
 
-#[derive(Debug,Clone)]
 /// A corpus stored on disk
 pub struct DiskCorpus {
     meta: HashMap<String, LayerDesc>,
     order: Vec<String>,
     compression_model: SupportedStringCompression,
     index: Index,
-    db: Db
+    db: PartitionHandle
 }
 
 impl DiskCorpus {
@@ -110,7 +109,6 @@ impl DiskCorpus {
         self.db.insert(ORDER_BYTES.to_vec(), to_stdvec(&self.order)?)?;
         let index_bytes = self.index.to_bytes();
         self.db.insert(INDEX_BYTES.to_vec(), index_bytes)?;
-        self.db.flush()?;
         Ok(())
     }
 }
@@ -228,8 +226,9 @@ impl Drop for DiskCorpus {
     }
 }
 
-fn open_db(path : &str) -> TeangaResult<sled::Db> {
-    sled::open(path).map_err(|e| TeangaError::DBError(e))
+fn open_db(path : &str) -> TeangaResult<PartitionHandle> {
+    let keyspace = Config::new(path).open()?; 
+    Ok(keyspace.open_partition("corpus", PartitionCreateOptions::default())?)
 }
 
 fn to_stdvec<T : Serialize>(t : &T) -> TeangaResult<Vec<u8>> {

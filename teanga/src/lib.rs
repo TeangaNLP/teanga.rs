@@ -16,7 +16,7 @@
 // Author: John P. McCrae
 // License: Apache 2.0
 use std::collections::HashMap;
-use sled;
+use fjall;
 use sha2::{Digest, Sha256};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
@@ -428,10 +428,7 @@ pub fn teanga_id_update(prev_val : &str, existing_keys: &Vec<String>, doc : &Doc
 pub enum TeangaError {
     /// Errors from the DB
     #[error("DB read error: {0}")]
-    DBError(#[from] sled::Error),
-    /// Errors from DB Transactions
-    #[error("DB transaction error: {0}")]
-    DBTXError(#[from] sled::transaction::TransactionError<sled::Error>),
+    DBError(#[from] fjall::Error),
     /// Errors in serializing data
     #[error("Data error: {0}")]
     DataError(#[from] ciborium::ser::Error<std::io::Error>),
