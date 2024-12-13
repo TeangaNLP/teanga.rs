@@ -16,7 +16,12 @@
 // Author: John P. McCrae
 // License: Apache 2.0
 use std::collections::HashMap;
+#[cfg(feature = "sled")]
 use sled;
+#[cfg(feature = "fjall")]
+use fjall;
+#[cfg(feature = "redb")]
+use redb;
 use sha2::{Digest, Sha256};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
@@ -24,6 +29,7 @@ use itertools::Itertools;
 use serde::{Serialize,Deserialize};
 use thiserror::Error;
 
+#[cfg(any(feature = "sled", feature = "fjall", feature = "redb"))]
 pub mod disk_corpus;
 pub mod document;
 pub mod layer;
@@ -34,6 +40,7 @@ pub mod match_condition;
 mod tcf;
 
 pub use document::{Document, DocumentContent, DocumentBuilder};
+#[cfg(any(feature = "sled", feature = "fjall", feature = "redb"))]
 pub use disk_corpus::DiskCorpus;
 pub use layer::{IntoLayer, Layer, LayerDesc, DataType, LayerType, TeangaData};
 pub use layer_builder::build_layer;
@@ -427,9 +434,11 @@ pub fn teanga_id_update(prev_val : &str, existing_keys: &Vec<String>, doc : &Doc
 #[derive(Error, Debug)]
 pub enum TeangaError {
     /// Errors from the DB
+    #[cfg(feature = "sled")]
     #[error("DB read error: {0}")]
     DBError(#[from] sled::Error),
     /// Errors from DB Transactions
+    #[cfg(feature = "sled")]
     #[error("DB transaction error: {0}")]
     DBTXError(#[from] sled::transaction::TransactionError<sled::Error>),
     /// Errors in serializing data
@@ -511,16 +520,6 @@ mod test {
         };
         let expected = "Kjco";
         assert_eq!(teanga_id(&existing_keys, &doc), expected);
-    }
-
-    #[test]
-    fn test_reopen_corpus() {
-        let mut corpus = DiskCorpus::new("tmp").unwrap();
-        corpus.add_layer_meta("text".to_string(), LayerType::characters, None, Some(DataType::Enum(vec!["a".to_string(),"b".to_string()])), None, None, None, HashMap::new()).unwrap();
-        corpus.add_doc(vec![("text".to_string(), "test")]).unwrap();
-        drop(corpus);
-        let corpus2 = DiskCorpus::new("tmp").unwrap();
-        assert!(!corpus2.get_meta().is_empty());
     }
 
     #[test]

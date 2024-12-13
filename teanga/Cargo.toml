@@ -7,12 +7,18 @@ include = [
     "/src"
 ]
 
+[features]
+default = []
+sled = ["dep:sled"]
+redb = ["dep:redb"]
+fjall = ["dep:fjall"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 name = "teanga"
 
 [dependencies]
-sled = "0.34.7"
+sled = { version = "0.34.7", optional = true }
 base64 = "*"
 sha2 = "*"
 itertools = "*"
@@ -25,6 +31,9 @@ smaz = "0.1.0"
 lru = "0.12.3"
 regex = "1.10.5"
 shoco = { git = "https://github.com/jmccrae/shoco", version = "0.1.0" }
+fjall = { version = "2.4.1", optional = true }
+redb = { version = "2.3.0", optional = true }
 
 [dev-dependencies]
 tempfile = "3.2.0"
+

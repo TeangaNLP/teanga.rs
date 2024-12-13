@@ -11,7 +11,6 @@ use crate::tcf::read_tcf_doc;
 use crate::tcf::write_tcf_header_compression;
 use crate::tcf::write_tcf_doc;
 use crate::tcf::Index;
-use sled::Db;
 use ciborium::{from_reader, into_writer};
 
 const DOCUMENT_PREFIX : u8 = 0x00;
@@ -19,14 +18,13 @@ const META_BYTES : [u8;1] = [0x01];
 const ORDER_BYTES : [u8;1] = [0x02];
 const INDEX_BYTES : [u8;1] = [0x03];
 
-#[derive(Debug,Clone)]
 /// A corpus stored on disk
 pub struct DiskCorpus {
     meta: HashMap<String, LayerDesc>,
     order: Vec<String>,
     compression_model: SupportedStringCompression,
     index: Index,
-    db: Db
+    db: Box<dyn DBImpl>
 }
 
 impl DiskCorpus {
@@ -40,21 +38,18 @@ impl DiskCorpus {
     ///
     pub fn new(path : &str) -> TeangaResult<DiskCorpus> {
         let db = open_db(path)?;
-        let (meta, compression_model) = if let Some(meta_bytes) = db.get(META_BYTES.to_vec())
-            .map_err(|e| TeangaError::DBError(e))? {
-            read_tcf_header(&mut meta_bytes.as_ref())
+        let (meta, compression_model) = if let Some(meta_bytes) = db.get(META_BYTES.to_vec())? {
+            read_tcf_header::<&[u8]>(&mut meta_bytes.as_ref())
                 .map_err(|e| TeangaError::ModelError(e.to_string()))?
         } else {
             (HashMap::new(), SupportedStringCompression::Smaz)
         };
-        let order = match db.get(ORDER_BYTES.to_vec())
-            .map_err(|e| TeangaError::DBError(e))? {
+        let order = match db.get(ORDER_BYTES.to_vec())? {
             Some(bytes) => from_bytes::<Vec<String>>(bytes.as_ref())?,
             None => Vec::new()
         };
-        let index = match db.get(INDEX_BYTES.to_vec())
-            .map_err(|e| TeangaError::DBError(e))? {
-            Some(bytes) => Index::from_bytes(bytes.as_ref())
+        let index = match db.get(INDEX_BYTES.to_vec())? {
+            Some(bytes) => Index::from_bytes::<&[u8]>(bytes.as_ref())
                 .map_err(|e| TeangaError::ModelError(e.to_string()))?,
             None => Index::new()
         };
@@ -74,7 +69,7 @@ impl DiskCorpus {
         let mut id_bytes = Vec::new();
         id_bytes.push(DOCUMENT_PREFIX);
         id_bytes.extend(id.as_bytes());
-        self.db.insert(id_bytes, data).map_err(|e| TeangaError::DBError(e))?;
+        self.db.insert(id_bytes, data)?;
         Ok(())
 
     }
@@ -91,7 +86,7 @@ impl DiskCorpus {
         let mut id_bytes = Vec::new();
         id_bytes.push(DOCUMENT_PREFIX);
         id_bytes.extend(id.as_bytes());
-        match self.db.get(id_bytes).map_err(|e| TeangaError::DBError(e))? {
+        match self.db.get(id_bytes)? {
             Some(bytes) => {
                 let doc = read_tcf_doc(&mut bytes.as_ref(), &self.meta, 
                         &self.index.freeze(), &self.compression_model)
@@ -228,8 +223,42 @@ impl Drop for DiskCorpus {
     }
 }
 
-fn open_db(path : &str) -> TeangaResult<sled::Db> {
-    sled::open(path).map_err(|e| TeangaError::DBError(e))
+trait DBImpl {
+    fn insert(&self, key : Vec<u8>, value : Vec<u8>) -> TeangaResult<()>;
+    fn get(&self, key : Vec<u8>) -> TeangaResult<Option<Vec<u8>>>;
+    fn remove(&self, key : Vec<u8>) -> TeangaResult<()>;
+    fn flush(&self) -> TeangaResult<()>;
+}
+
+#[cfg(feature = "sled")]
+struct SledDb(sled::Db);
+
+#[cfg(feature = "sled")]
+impl DBImpl for SledDb {
+    fn insert(&self, key : Vec<u8>, value : Vec<u8>) -> TeangaResult<()> {
+        self.0.insert(key, value).map_err(|e| TeangaError::DBError(e))?;
+        Ok(())
+    }
+
+    fn get(&self, key : Vec<u8>) -> TeangaResult<Option<Vec<u8>>> {
+        let value = self.0.get(key).map_err(|e| TeangaError::DBError(e))?;
+        Ok(value.map(|v| v.to_vec()))
+    }
+
+    fn remove(&self, key : Vec<u8>) -> TeangaResult<()> {
+        self.0.remove(key).map_err(|e| TeangaError::DBError(e))?;
+        Ok(())
+    }
+
+    fn flush(&self) -> TeangaResult<()> {
+        self.0.flush().map_err(|e| TeangaError::DBError(e))?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "sled")]
+fn open_db(path : &str) -> TeangaResult<Box<dyn DBImpl>> {
+    Ok(Box::new(SledDb(sled::open(path)?)))
 }
 
 fn to_stdvec<T : Serialize>(t : &T) -> TeangaResult<Vec<u8>> {
@@ -287,6 +316,18 @@ mod tests {
             assert!(!corpus.get_docs().is_empty());
         }
     }
+
+    #[test]
+    fn test_reopen_corpus() {
+        let mut corpus = DiskCorpus::new("tmp").unwrap();
+        corpus.add_layer_meta("text".to_string(), LayerType::characters, None, Some(DataType::Enum(vec!["a".to_string(),"b".to_string()])), None, None, None, HashMap::new()).unwrap();
+        corpus.add_doc(vec![("text".to_string(), "test")]).unwrap();
+        drop(corpus);
+        let corpus2 = DiskCorpus::new("tmp").unwrap();
+        assert!(!corpus2.get_meta().is_empty());
+    }
+
+
 }
 
 
