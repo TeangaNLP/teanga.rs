@@ -436,14 +436,34 @@ pub enum TeangaError {
     /// Errors from the DB
     #[cfg(feature = "sled")]
     #[error("DB read error: {0}")]
-    DBError(#[from] sled::Error),
+    SledError(#[from] sled::Error),
     /// Errors from DB Transactions
     #[cfg(feature = "sled")]
     #[error("DB transaction error: {0}")]
     DBTXError(#[from] sled::transaction::TransactionError<sled::Error>),
     #[cfg(feature = "fjall")]
     #[error("DB read error: {0}")]
-    DBError(#[from] fjall::Error),
+    FjallError(#[from] fjall::Error),
+    /// Errors from the DB
+    #[cfg(feature = "redb")]
+    #[error("DB read error: {0}")]
+    ReDBError(#[from] redb::DatabaseError),
+    /// Errors from DB  transcation
+    #[cfg(feature = "redb")]
+    #[error("DB read error: {0}")]
+    DBTransError(#[from] redb::TransactionError),
+    /// Errors from DB table
+    #[cfg(feature = "redb")]
+    #[error("DB table error: {0}")]
+    DBTableError(#[from] redb::TableError),
+    /// Errors from DB storage
+    #[cfg(feature = "redb")]
+    #[error("DB storage error: {0}")]
+    DBStorageError(#[from] redb::StorageError),
+    /// Errors for DB commit
+    #[cfg(feature = "redb")]
+    #[error("DB commit error: {0}")]
+    DBCommitError(#[from] redb::CommitError),
     /// Errors in serializing data
     #[error("Data error: {0}")]
     DataError(#[from] ciborium::ser::Error<std::io::Error>),

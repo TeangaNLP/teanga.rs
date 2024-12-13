@@ -12,13 +12,18 @@ use crate::tcf::write_tcf_header_compression;
 use crate::tcf::write_tcf_doc;
 use crate::tcf::Index;
 #[cfg(feature = "fjall")]
-use fjall::{Config, PersistMode, Keyspace, PartitionCreateOptions, PartitionHandle};
+use fjall::{Config, PartitionCreateOptions, PartitionHandle};
+#[cfg(feature = "redb")]
+use redb::{Database, TableDefinition, TableError};
 use ciborium::{from_reader, into_writer};
+use std::path::Path;
 
 const DOCUMENT_PREFIX : u8 = 0x00;
 const META_BYTES : [u8;1] = [0x01];
 const ORDER_BYTES : [u8;1] = [0x02];
 const INDEX_BYTES : [u8;1] = [0x03];
+#[cfg(feature = "redb")]
+const TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("corpus");
 
 /// A corpus stored on disk
 pub struct DiskCorpus {
@@ -38,8 +43,21 @@ impl DiskCorpus {
     /// # Returns
     /// A new corpus object
     ///
-    pub fn new(path : &str) -> TeangaResult<DiskCorpus> {
-        let db = open_db(path)?;
+    pub fn new<P : AsRef<Path>>(path : P) -> TeangaResult<DiskCorpus> {
+        DiskCorpus::with_db(open_db(path)?)
+    }
+
+    /// Create a new corpus, with a specific database. The
+    /// DB should be constructed from one of the methods
+    /// `open_sled_db`, `open_fjall_db` or `open_redb_db`
+    ///
+    /// # Arguments
+    /// * `db` - The database
+    ///
+    /// # Returns
+    /// A new corpus object
+    ///
+    pub fn with_db(db : Box<dyn DBImpl>) -> TeangaResult<DiskCorpus> {
         let (meta, compression_model) = if let Some(meta_bytes) = db.get(META_BYTES.to_vec())? {
             read_tcf_header::<&[u8]>(&mut meta_bytes.as_ref())
                 .map_err(|e| TeangaError::ModelError(e.to_string()))?
@@ -224,7 +242,7 @@ impl Drop for DiskCorpus {
     }
 }
 
-trait DBImpl {
+pub trait DBImpl {
     fn insert(&self, key : Vec<u8>, value : Vec<u8>) -> TeangaResult<()>;
     fn get(&self, key : Vec<u8>) -> TeangaResult<Option<Vec<u8>>>;
     fn remove(&self, key : Vec<u8>) -> TeangaResult<()>;
@@ -237,22 +255,22 @@ struct SledDb(sled::Db);
 #[cfg(feature = "sled")]
 impl DBImpl for SledDb {
     fn insert(&self, key : Vec<u8>, value : Vec<u8>) -> TeangaResult<()> {
-        self.0.insert(key, value).map_err(|e| TeangaError::DBError(e))?;
+        self.0.insert(key, value)?;
         Ok(())
     }
 
     fn get(&self, key : Vec<u8>) -> TeangaResult<Option<Vec<u8>>> {
-        let value = self.0.get(key).map_err(|e| TeangaError::DBError(e))?;
+        let value = self.0.get(key)?;
         Ok(value.map(|v| v.to_vec()))
     }
 
     fn remove(&self, key : Vec<u8>) -> TeangaResult<()> {
-        self.0.remove(key).map_err(|e| TeangaError::DBError(e))?;
+        self.0.remove(key)?;
         Ok(())
     }
 
     fn flush(&self) -> TeangaResult<()> {
-        self.0.flush().map_err(|e| TeangaError::DBError(e))?;
+        self.0.flush()?;
         Ok(())
     }
 }
@@ -281,16 +299,84 @@ impl DBImpl for FjallDb {
     }
 }
 
+#[cfg(feature = "redb")]
+struct RedbDb(redb::Database);
+
+#[cfg(feature = "redb")]
+impl DBImpl for RedbDb {
+    fn insert(&self, key : Vec<u8>, value : Vec<u8>) -> TeangaResult<()> {
+        let write_txn = self.0.begin_write()?;
+        {
+            let mut table = write_txn.open_table(TABLE)?;
+            table.insert(key.as_slice(), value.as_slice())?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    fn get(&self, key : Vec<u8>) -> TeangaResult<Option<Vec<u8>>> {
+        let read_txn = self.0.begin_read()?;
+        match read_txn.open_table(TABLE) {
+            Ok(table) => {
+                let value = table.get(key.as_slice())?;
+                Ok(value.map(|v| v.value().to_vec()))
+            },
+            Err(TableError::TableDoesNotExist(_)) => Ok(None),
+            Err(e) => Err(TeangaError::DBTableError(e))
+        }
+    }
+
+    fn remove(&self, key : Vec<u8>) -> TeangaResult<()> {
+        let write_txn = self.0.begin_write()?;
+        {
+            let mut table = write_txn.open_table(TABLE)?;
+            table.remove(key.as_slice())?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    fn flush(&self) -> TeangaResult<()> {
+        Ok(())
+    }
+}
+
 #[cfg(feature = "sled")]
-fn open_db(path : &str) -> TeangaResult<Box<dyn DBImpl>> {
-    Ok(Box::new(SledDb(sled::open(path)?)))
+fn open_db<P : AsRef<Path>>(path : P) -> TeangaResult<Box<dyn DBImpl>> {
+    open_sled_db(path)
 }
 
 #[cfg(all(not(feature = "sled"), feature = "fjall"))]
-fn open_db(path : &str) -> TeangaResult<Box<dyn DBImpl>> {
+fn open_db<P : AsRef<Path>>(path : P) -> TeangaResult<Box<dyn DBImpl>> {
+    open_fjall_db(path)
+}
+
+#[cfg(all(not(feature = "sled"), not(feature = "fjall"), feature = "redb"))]
+fn open_db<P: AsRef<Path>>(path : P) -> TeangaResult<Box<dyn DBImpl>> {
+    open_redb_db(path)
+}
+
+
+#[cfg(feature = "sled")]
+pub fn open_sled_db<P : AsRef<Path>>(path : P) -> TeangaResult<Box<dyn DBImpl>> {
+    Ok(Box::new(SledDb(sled::open(path)?)))
+}
+
+#[cfg(feature = "fjall")]
+pub fn open_fjall_db<P : AsRef<Path>>(path : P) -> TeangaResult<Box<dyn DBImpl>> {
     let keyspace = Config::new(path).open()?; 
     let handle = keyspace.open_partition("corpus", PartitionCreateOptions::default())?;
     Ok(Box::new(FjallDb(handle)))
+}
+
+#[cfg(feature = "redb")]
+pub fn open_redb_db<P: AsRef<Path>>(path : P) -> TeangaResult<Box<dyn DBImpl>> {
+    let db = if path.as_ref().exists() {
+        Database::open(path)?
+    } else {
+        Database::create(path)?
+    };
+    Ok(Box::new(RedbDb(db)))
 }
 
 fn to_stdvec<T : Serialize>(t : &T) -> TeangaResult<Vec<u8>> {
@@ -310,8 +396,10 @@ mod tests {
 
     #[test]
     fn test_load_disk_corpus() {
+        let dir = tempfile::tempdir().unwrap();
+        let tmpfile = dir.path().join("db");
         {
-        let mut corpus = DiskCorpus::new("tmp2").unwrap();
+        let mut corpus = DiskCorpus::new(&tmpfile).unwrap();
         let data = "_meta:
     lemmas:
         type: seq
@@ -343,7 +431,7 @@ mod tests {
         assert!(!corpus.get_meta().is_empty());
         }
         {
-            let corpus = DiskCorpus::new("tmp2").unwrap();
+            let corpus = DiskCorpus::new(&tmpfile).unwrap();
             assert!(!corpus.get_meta().is_empty());
             assert!(!corpus.get_docs().is_empty());
         }
@@ -351,15 +439,13 @@ mod tests {
 
     #[test]
     fn test_reopen_corpus() {
-        let mut corpus = DiskCorpus::new("tmp").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let tmpfile = dir.path().join("db");
+        let mut corpus = DiskCorpus::new(&tmpfile).unwrap();
         corpus.add_layer_meta("text".to_string(), LayerType::characters, None, Some(DataType::Enum(vec!["a".to_string(),"b".to_string()])), None, None, None, HashMap::new()).unwrap();
         corpus.add_doc(vec![("text".to_string(), "test")]).unwrap();
         drop(corpus);
-        let corpus2 = DiskCorpus::new("tmp").unwrap();
+        let corpus2 = DiskCorpus::new(&tmpfile).unwrap();
         assert!(!corpus2.get_meta().is_empty());
     }
-
-
 }
-
-
