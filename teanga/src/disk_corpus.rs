@@ -100,6 +100,18 @@ impl DiskCorpus {
             None => Ok(None)
         }
     }
+
+    fn commit(&mut self) -> TeangaResult<()> {
+        let mut meta_bytes = Vec::new();
+        write_tcf_header_compression(&mut meta_bytes, &self.meta, &self.compression_model)
+            .map_err(|e| TeangaError::ModelError(e.to_string()))?;
+        self.db.insert(META_BYTES.to_vec(), meta_bytes)?;
+        self.db.insert(ORDER_BYTES.to_vec(), to_stdvec(&self.order)?)?;
+        let index_bytes = self.index.to_bytes();
+        self.db.insert(INDEX_BYTES.to_vec(), index_bytes)?;
+        self.db.flush()?;
+        Ok(())
+    }
 }
 
 
@@ -211,14 +223,7 @@ impl WriteableCorpus for DiskCorpus {
 
 impl Drop for DiskCorpus {
     fn drop(&mut self) {
-        let mut meta_bytes = Vec::new();
-        write_tcf_header_compression(&mut meta_bytes, &self.meta, &self.compression_model).
-            unwrap();
-        self.db.insert(META_BYTES.to_vec(), meta_bytes).unwrap();
-        self.db.insert(ORDER_BYTES.to_vec(), to_stdvec(&self.order).unwrap()).unwrap();
-        let index_bytes = self.index.to_bytes();
-        self.db.insert(INDEX_BYTES.to_vec(), index_bytes).unwrap();
-        self.db.flush().unwrap();
+        self.commit().unwrap();
     }
 }
 #[cfg(test)]
@@ -263,6 +268,7 @@ mod tests {
         {
             let corpus = DiskCorpus::new("tmp2").unwrap();
             assert!(!corpus.get_meta().is_empty());
+            assert!(!corpus.get_docs().is_empty());
         }
     }
 }
