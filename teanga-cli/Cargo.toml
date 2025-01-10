@@ -10,7 +10,7 @@ ciborium = "0.2.2"
 clap = { version = "4.5.4", features = ["derive"] }
 flate2 = "1.0.29"
 serde_json = "1.0.116"
-teanga = { path = "../teanga" }
+teanga = { path = "../teanga", features = ["sled"] }
 
 [[bin]]
 name = "teanga-cli"

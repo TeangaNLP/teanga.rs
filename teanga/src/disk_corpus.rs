@@ -26,15 +26,16 @@ const INDEX_BYTES : [u8;1] = [0x03];
 const TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("corpus");
 
 /// A corpus stored on disk
-pub struct DiskCorpus {
+pub struct DiskCorpus<D : DBImpl> {
     meta: HashMap<String, LayerDesc>,
     order: Vec<String>,
     compression_model: SupportedStringCompression,
     index: Index,
-    db: Box<dyn DBImpl>
+    db: D
 }
 
-impl DiskCorpus {
+#[cfg(feature = "sled")]
+impl DiskCorpus<SledDb> {
     /// Create a new corpus
     ///
     /// # Arguments
@@ -43,10 +44,58 @@ impl DiskCorpus {
     /// # Returns
     /// A new corpus object
     ///
-    pub fn new<P : AsRef<Path>>(path : P) -> TeangaResult<DiskCorpus> {
-        DiskCorpus::with_db(open_db(path)?)
+    pub fn new<P : AsRef<Path>>(path : P) -> TeangaResult<DiskCorpus<SledDb>> {
+        DiskCorpus::with_db(open_sled_db(path)?)
     }
+}
 
+#[cfg(all(not(feature = "sled"), feature = "fjall"))]
+impl DiskCorpus<FjallDb> {
+    /// Create a new corpus
+    ///
+    /// # Arguments
+    /// * `path` - The path to the database
+    ///
+    /// # Returns
+    /// A new corpus object
+    ///
+    pub fn new<P : AsRef<Path>>(path : P) -> TeangaResult<DiskCorpus<FjallDb>> {
+        DiskCorpus::with_db(open_fjall_db(path)?)
+    }
+}
+
+#[cfg(all(not(feature = "sled"), not(feature = "fjall"), feature = "redb"))]
+impl DiskCorpus<RedbDb> {
+    /// Create a new corpus
+    ///
+    /// # Arguments
+    /// * `path` - The path to the database
+    ///
+    /// # Returns
+    /// A new corpus object
+    ///
+    pub fn new<P : AsRef<Path>>(path : P) -> TeangaResult<DiskCorpus<RedbDb>> {
+        DiskCorpus::with_db(open_redb_db(path)?)
+    }
+}
+
+impl DiskCorpus<PathAsDB> {
+    /// Create a new corpus, with a specific path in the database. This
+    /// path will be loaded in a lazy manner, so that the database is
+    /// only opened when it is needed.
+    ///
+    /// # Arguments
+    /// * `path` - The path to the database
+    ///
+    /// # Returns
+    /// A new corpus object
+    #[cfg(any(feature = "sled", feature = "fjall", feature = "redb"))]
+    pub fn new_path_db<P : AsRef<Path>>(path : P) -> DiskCorpus<PathAsDB> {
+        DiskCorpus::with_db(PathAsDB(path.as_ref().to_string_lossy().to_string())).unwrap()
+    }
+}
+
+impl <D: DBImpl> DiskCorpus<D> {
     /// Create a new corpus, with a specific database. The
     /// DB should be constructed from one of the methods
     /// `open_sled_db`, `open_fjall_db` or `open_redb_db`
@@ -57,7 +106,7 @@ impl DiskCorpus {
     /// # Returns
     /// A new corpus object
     ///
-    pub fn with_db(db : Box<dyn DBImpl>) -> TeangaResult<DiskCorpus> {
+    pub fn with_db(db : D) -> TeangaResult<DiskCorpus<D>> {
         let (meta, compression_model) = if let Some(meta_bytes) = db.get(META_BYTES.to_vec())? {
             read_tcf_header::<&[u8]>(&mut meta_bytes.as_ref())
                 .map_err(|e| TeangaError::ModelError(e.to_string()))?
@@ -117,7 +166,7 @@ impl DiskCorpus {
         }
     }
 
-    fn commit(&mut self) -> TeangaResult<()> {
+    pub fn commit(&mut self) -> TeangaResult<()> {
         let mut meta_bytes = Vec::new();
         write_tcf_header_compression(&mut meta_bytes, &self.meta, &self.compression_model)
             .map_err(|e| TeangaError::ModelError(e.to_string()))?;
@@ -130,7 +179,7 @@ impl DiskCorpus {
 }
 
 
-impl Corpus for DiskCorpus {
+impl <DB : DBImpl> Corpus for DiskCorpus<DB> {
     type LayerStorage = Layer;
     type Content = Document;
 
@@ -224,7 +273,7 @@ impl Corpus for DiskCorpus {
 }
 
 
-impl WriteableCorpus for DiskCorpus {
+impl <DB : DBImpl> WriteableCorpus for DiskCorpus<DB> {
     fn set_meta(&mut self, meta : HashMap<String, LayerDesc>) -> TeangaResult<()> {
         self.meta = meta;
         Ok(())
@@ -236,9 +285,21 @@ impl WriteableCorpus for DiskCorpus {
     }
 }
 
-impl Drop for DiskCorpus {
+impl <DB : DBImpl> Drop for DiskCorpus<DB> {
     fn drop(&mut self) {
         self.commit().unwrap();
+    }
+}
+
+impl <C : Clone + DBImpl> Clone for DiskCorpus<C> {
+    fn clone(&self) -> Self {
+        DiskCorpus {
+            meta: self.meta.clone(),
+            order: self.order.clone(),
+            compression_model: self.compression_model.clone(),
+            index: self.index.clone(),
+            db: self.db.clone()
+        }
     }
 }
 
@@ -250,7 +311,7 @@ pub trait DBImpl {
 }
 
 #[cfg(feature = "sled")]
-struct SledDb(sled::Db);
+pub struct SledDb(sled::Db);
 
 #[cfg(feature = "sled")]
 impl DBImpl for SledDb {
@@ -276,7 +337,7 @@ impl DBImpl for SledDb {
 }
 
 #[cfg(feature = "fjall")]
-struct FjallDb(PartitionHandle);
+pub struct FjallDb(PartitionHandle);
 
 #[cfg(feature = "fjall")]
 impl DBImpl for FjallDb {
@@ -300,7 +361,7 @@ impl DBImpl for FjallDb {
 }
 
 #[cfg(feature = "redb")]
-struct RedbDb(redb::Database);
+pub struct RedbDb(redb::Database);
 
 #[cfg(feature = "redb")]
 impl DBImpl for RedbDb {
@@ -341,42 +402,130 @@ impl DBImpl for RedbDb {
     }
 }
 
-#[cfg(feature = "sled")]
-fn open_db<P : AsRef<Path>>(path : P) -> TeangaResult<Box<dyn DBImpl>> {
-    open_sled_db(path)
-}
-
-#[cfg(all(not(feature = "sled"), feature = "fjall"))]
-fn open_db<P : AsRef<Path>>(path : P) -> TeangaResult<Box<dyn DBImpl>> {
-    open_fjall_db(path)
-}
-
-#[cfg(all(not(feature = "sled"), not(feature = "fjall"), feature = "redb"))]
-fn open_db<P: AsRef<Path>>(path : P) -> TeangaResult<Box<dyn DBImpl>> {
-    open_redb_db(path)
-}
-
 
 #[cfg(feature = "sled")]
-pub fn open_sled_db<P : AsRef<Path>>(path : P) -> TeangaResult<Box<dyn DBImpl>> {
-    Ok(Box::new(SledDb(sled::open(path)?)))
+pub fn open_sled_db<P : AsRef<Path>>(path : P) -> TeangaResult<SledDb> {
+    Ok(SledDb(sled::open(path)?))
 }
 
 #[cfg(feature = "fjall")]
-pub fn open_fjall_db<P : AsRef<Path>>(path : P) -> TeangaResult<Box<dyn DBImpl>> {
+pub fn open_fjall_db<P : AsRef<Path>>(path : P) -> TeangaResult<FjallDb> {
     let keyspace = Config::new(path).open()?; 
     let handle = keyspace.open_partition("corpus", PartitionCreateOptions::default())?;
-    Ok(Box::new(FjallDb(handle)))
+    Ok(FjallDb(handle))
 }
 
 #[cfg(feature = "redb")]
-pub fn open_redb_db<P: AsRef<Path>>(path : P) -> TeangaResult<Box<dyn DBImpl>> {
+pub fn open_redb_db<P: AsRef<Path>>(path : P) -> TeangaResult<RedbDb> {
     let db = if path.as_ref().exists() {
         Database::open(path)?
     } else {
         Database::create(path)?
     };
-    Ok(Box::new(RedbDb(db)))
+    Ok(RedbDb(db))
+}
+
+/// A path that opens a new connection to the database each time it is used. 
+/// Using this is not recommended for most applications, as it will be slow.
+/// This is used in the Python bindings, where the database is opened and closed
+/// when passed to the Python environment.
+pub struct PathAsDB(String);
+
+impl DBImpl for PathAsDB {
+    #[cfg(feature = "sled")]
+    fn insert(&self, key : Vec<u8>, value : Vec<u8>) -> TeangaResult<()> {
+        let db = open_sled_db(&self.0)?;
+        db.insert(key, value)?;
+        Ok(())
+    }
+
+    #[cfg(all(not(feature = "sled"), feature = "fjall"))]
+    fn insert(&self, key : Vec<u8>, value : Vec<u8>) -> TeangaResult<()> {
+        let db = open_fjall_db(&self.0)?;
+        db.insert(key, value)?;
+        Ok(())
+    }
+
+    #[cfg(all(not(feature = "sled"), not(feature = "fjall"), feature = "redb"))]
+    fn insert(&self, key : Vec<u8>, value : Vec<u8>) -> TeangaResult<()> {
+        let db = open_redb_db(&self.0)?;
+        db.insert(key, value)?;
+        Ok(())
+    }
+
+    #[cfg(all(not(feature = "sled"), not(feature = "fjall"), not(feature = "redb")))]
+    fn insert(&self, _key : Vec<u8>, _value : Vec<u8>) -> TeangaResult<()> {
+        Err(TeangaError::DBError("No Database Feature Selected".to_string()))
+    }
+
+    #[cfg(feature = "sled")]
+    fn get(&self, key : Vec<u8>) -> TeangaResult<Option<Vec<u8>>> {
+        let db = open_sled_db(&self.0)?;
+        db.get(key)
+    }
+
+    #[cfg(all(not(feature = "sled"), feature = "fjall"))]
+    fn get(&self, key : Vec<u8>) -> TeangaResult<Option<Vec<u8>>> {
+        let db = open_fjall_db(&self.0)?;
+        db.get(key)
+    }
+
+    #[cfg(all(not(feature = "sled"), not(feature = "fjall"), feature = "redb"))]
+    fn get(&self, key : Vec<u8>) -> TeangaResult<Option<Vec<u8>>> {
+        let db = open_redb_db(&self.0)?;
+        db.get(key)
+    }
+
+    #[cfg(all(not(feature = "sled"), not(feature = "fjall"), not(feature = "redb")))]
+    fn get(&self, _key : Vec<u8>) -> TeangaResult<Option<Vec<u8>>> {
+        Err(TeangaError::DBError("No Database Feature Selected".to_string()))
+    }
+
+    #[cfg(feature = "sled")]
+    fn remove(&self, key : Vec<u8>) -> TeangaResult<()> {
+        let db = open_sled_db(&self.0)?;
+        db.remove(key)
+    }
+
+    #[cfg(all(not(feature = "sled"), feature = "fjall"))]
+    fn remove(&self, key : Vec<u8>) -> TeangaResult<()> {
+        let db = open_fjall_db(&self.0)?;
+        db.remove(key)
+    }
+
+    #[cfg(all(not(feature = "sled"), not(feature = "fjall"), feature = "redb"))]
+    fn remove(&self, key : Vec<u8>) -> TeangaResult<()> {
+        let db = open_redb_db(&self.0)?;
+        db.remove(key)
+    }
+
+    #[cfg(all(not(feature = "sled"), not(feature = "fjall"), not(feature = "redb")))]
+    fn remove(&self, _key : Vec<u8>) -> TeangaResult<()> {
+        Err(TeangaError::DBError("No Database Feature Selected".to_string()))
+    }
+
+    #[cfg(feature = "sled")]
+    fn flush(&self) -> TeangaResult<()> {
+        let db = open_sled_db(&self.0)?;
+        db.flush()
+    }
+
+    #[cfg(all(not(feature = "sled"), feature = "fjall"))]
+    fn flush(&self) -> TeangaResult<()> {
+        let db = open_fjall_db(&self.0)?;
+        db.flush()
+    }
+
+    #[cfg(all(not(feature = "sled"), not(feature = "fjall"), feature = "redb"))]
+    fn flush(&self) -> TeangaResult<()> {
+        let db = open_redb_db(&self.0)?;
+        db.flush()
+    }
+
+    #[cfg(all(not(feature = "sled"), not(feature = "fjall"), not(feature = "redb")))]
+    fn flush(&self) -> TeangaResult<()> {
+        Err(TeangaError::DBError("No Database Feature Selected".to_string()))
+    }
 }
 
 fn to_stdvec<T : Serialize>(t : &T) -> TeangaResult<Vec<u8>> {
