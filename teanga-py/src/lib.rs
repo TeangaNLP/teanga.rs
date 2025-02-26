@@ -9,7 +9,7 @@ mod tcf_py;
 mod query;
 
 use tcf_py::TCFPyCorpus;
-use ::teanga::{TeangaResult, IntoLayer, WriteableCorpus};
+use ::teanga::{TeangaResult, IntoLayer, WriteableCorpus, TeangaError};
 
 #[pyclass(name="Corpus")]
 /// A corpus object
@@ -241,12 +241,7 @@ impl IntoPy<PyObject> for PyRawLayer {
             Layer::L1S(val) => val.into_py(py),
             Layer::L2S(val) => val.into_py(py),
             Layer::L3S(val) => val.into_py(py),
-            Layer::MetaLayer(val) => val.into_iter()
-                .map(|v| 
-                    v.into_iter().map(|(k,v)| (k, val_to_pyval(v)))
-                    .collect::<HashMap<String, PyValue>>())
-                    .collect::<Vec<HashMap<String, PyValue>>>()
-                    .into_py(py)
+            Layer::MetaLayer(val) => val_to_pyval(val).into_py(py),
         }
     }
 }
@@ -254,6 +249,13 @@ impl IntoPy<PyObject> for PyRawLayer {
 impl IntoLayer for PyRawLayer {
     fn into_layer(self, _meta: &LayerDesc) -> TeangaResult<Layer> {
         Ok(self.0)
+    }
+
+    fn into_meta_layer(self) -> TeangaResult<Layer> {
+        match self {
+            PyRawLayer(Layer::MetaLayer(val)) => Ok(Layer::MetaLayer(val)),
+            _ => Err(TeangaError::ModelError("Not a meta layer".to_string()))
+        }
     }
 }
 
@@ -275,17 +277,8 @@ impl FromPyObject<'_> for PyRawLayer {
             Ok(PyRawLayer(Layer::L2S(layer)))
         } else if let Ok(layer) = v.extract::<Vec<Vec<U32OrString>>>() {
             Ok(PyRawLayer(vecus2rawlayer(layer).map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e))?))
-        } else if let Ok(layer) = v.extract::<Vec<HashMap<String, &PyAny>>>() {
-            let mut layer2 = Vec::new();
-            for l in layer {
-                let mut layer3 = HashMap::new();
-                for (k,v) in l {
-                    layer3.insert(k, 
-                        v.extract::<PyValue>()?.val());
-                }
-                layer2.push(layer3);
-            }
-            Ok(PyRawLayer(Layer::MetaLayer(layer2)))
+        } else if let Ok(layer) = v.extract::<PyValue>() {
+            Ok(PyRawLayer(Layer::MetaLayer(layer.val())))
         } else {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
                 format!("Unknown layer type {}", v.extract::<String>()?)))

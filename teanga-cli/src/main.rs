@@ -61,6 +61,7 @@ enum Format {
 #[derive(ValueEnum, Debug, Clone, PartialEq, Eq)]
 #[clap(rename_all = "lowercase")]
 enum StringCompression {
+    None,
     Smaz,
     Shoco,
     Generate
@@ -218,6 +219,7 @@ impl ConvertCommand {
             }
             Format::TCF => {
                 let config = match self.compression {
+                    StringCompression::None => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::None),
                     StringCompression::Smaz => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::Smaz),
                     StringCompression::Shoco => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::ShocoDefault),
                     StringCompression::Generate => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::GenerateShocoModel(self.compression_bytes)),

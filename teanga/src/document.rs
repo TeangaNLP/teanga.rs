@@ -15,6 +15,8 @@ pub trait DocumentContent<D> : IntoIterator<Item=(String, D)> where D : IntoLaye
         for (k, v) in self.into_iter() {
             if let Some(meta) = meta.get(&k) {
                 map.insert(k, v.into_layer(meta)?);
+            } else if k.starts_with("_") {
+                map.insert(k, v.into_meta_layer()?);
             } else {
                 return Err(TeangaError::LayerNotFoundError(k))
             }
@@ -56,17 +58,23 @@ impl Document {
     /// A new document object
     pub fn new<D : IntoLayer, DC : DocumentContent<D>>(content : DC, meta: &HashMap<String, LayerDesc>) -> TeangaResult<Document> {
        for key in content.keys() {
-            if !meta.contains_key(&key) {
+            if !key.starts_with("_") &&
+                !meta.contains_key(&key) {
                 return Err(TeangaError::ModelError(
                     format!("Layer {} does not exist", key)))
             }
         }
         let mut doc_content = HashMap::new();
         for (k, v) in content {
-            let layer_meta = meta.get(&k).ok_or_else(|| TeangaError::ModelError(
-                format!("No meta information for layer {}", k)))?;
-            doc_content.insert(k, 
-                v.into_layer(layer_meta)?);
+            if k.starts_with("_") {
+                doc_content.insert(k,
+                    v.into_meta_layer()?);
+            } else {
+                let layer_meta = meta.get(&k).ok_or_else(|| TeangaError::ModelError(
+                    format!("No meta information for layer {}", k)))?;
+                doc_content.insert(k, 
+                    v.into_layer(layer_meta)?);
+            }
         }
         Ok(Document {
             content: doc_content
@@ -247,10 +255,14 @@ impl<'a, C : Corpus> DocumentBuilder<'a, C> {
     /// The same builder object passed or an error if the layer does not exist
     /// or the data provided is not valid for that layer's metadata
     pub fn layer<I : IntoLayer>(mut self, name: &str, layer: I) -> TeangaResult<DocumentBuilder<'a, C>> {
-        let layer_desc = self.0.get_meta().get(name)
-                .ok_or_else(|| TeangaError::ModelError(
-                    format!("Layer {} does not exist", name)))?;
-        self.1.insert(name.to_string(), layer.into_layer(layer_desc)?);
+        if name.starts_with("_") {
+            self.1.insert(name.to_string(), layer.into_meta_layer()?);
+        } else {
+            let layer_desc = self.0.get_meta().get(name)
+                    .ok_or_else(|| TeangaError::ModelError(
+                        format!("Layer {} does not exist", name)))?;
+            self.1.insert(name.to_string(), layer.into_layer(layer_desc)?);
+        }
         Ok(self)
     }
 

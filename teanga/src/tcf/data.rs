@@ -35,7 +35,8 @@ impl TCFData {
                 Ok(TCFData::Enum(v))
             }
             Some(DataType::Link) => {
-                panic!("Link data type not supported");
+                let v = iter.map(|s| idx.idx(&s)).collect();
+                Ok(TCFData::String(v))
             }
             None => {
                 panic!("No data type specified");
@@ -89,7 +90,8 @@ impl TCFData {
                 Ok((TCFData::Enum(v.to_vec()), len))
             }
             Some(DataType::Link) => {
-                panic!("Link data type not supported");
+                let (v, len) = bytes_to_index_results(data, s)?;
+                Ok((TCFData::String(v), len))
             }
             None => {
                 panic!("No data type specified");

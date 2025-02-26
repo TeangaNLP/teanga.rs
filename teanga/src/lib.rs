@@ -291,9 +291,13 @@ impl Corpus for SimpleCorpus {
         let doc = match self.get_doc_by_id(id) {
             Ok(mut doc) => {
                 for (key, layer) in content {
-                    let layer_desc = self.meta.get(&key).ok_or_else(|| TeangaError::ModelError(
-                            format!("Layer {} is not described in meta", key)))?;
-                    doc.set(&key, layer.into_layer(layer_desc)?);
+                    if key.starts_with("_") {
+                        doc.set(&key, layer.into_meta_layer()?);
+                    } else {
+                        let layer_desc = self.meta.get(&key).ok_or_else(|| TeangaError::ModelError(
+                                format!("Layer {} is not described in meta", key)))?;
+                        doc.set(&key, layer.into_layer(layer_desc)?);
+                    }
                 }
                 doc
             },
@@ -546,6 +550,20 @@ mod test {
     }
 
     #[test]
+    fn test_teanga_id_2() {
+        let existing_keys = Vec::new();
+        let doc = Document {
+            content: vec![("text".to_string(), 
+                         Layer::Characters("This is a document.".to_string())),
+                         ("fileid".to_string(),
+                         Layer::Characters("doc1".to_string()))].into_iter().collect()
+        };
+        let expected = "fexV";
+        assert_eq!(teanga_id(&existing_keys, &doc), expected);
+    }
+
+
+    #[test]
     fn test_serialize_layer() {
         let layer = Layer::L1S(vec![(1,"a".to_string()),(2,"b".to_string())]);
         let s = serde_json::to_string(&layer).unwrap();
@@ -569,7 +587,5 @@ mod test {
         let doc = corpus.get_doc_by_id(&id).unwrap();
         assert!(doc.get("words").is_some());
         assert!(doc.get("pos").is_some());
-
     }
-
 }

@@ -23,11 +23,27 @@ pub trait IntoLayer {
     ///
     /// The converted layer
     fn into_layer(self, meta : &LayerDesc) -> TeangaResult<Layer>;
+    /// Convert the value into a metadata layer
+    fn into_meta_layer(self) -> TeangaResult<Layer>;
 }
 
 impl IntoLayer for Layer {
     fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
         Ok(self)
+    }
+
+    fn into_meta_layer(self) -> TeangaResult<Layer> {
+        match self {
+            Layer::MetaLayer(v) => Ok(Layer::MetaLayer(v)),
+            Layer::Characters(s) => Ok(Layer::MetaLayer(Value::String(s))),
+            Layer::L1(indexes) => Ok(Layer::MetaLayer(Value::Array(indexes.into_iter().map(|i| Value::Int(i as i32)).collect()))),
+            Layer::L2(indexes) => Ok(Layer::MetaLayer(Value::Array(indexes.into_iter().map(|(i, j)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32)])).collect()))),
+            Layer::L3(indexes) => Ok(Layer::MetaLayer(Value::Array(indexes.into_iter().map(|(i, j, k)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32), Value::Int(k as i32)])).collect()))),
+            Layer::LS(indexes) => Ok(Layer::MetaLayer(Value::Array(indexes.into_iter().map(|s| Value::String(s)).collect()))),
+            Layer::L1S(indexes) => Ok(Layer::MetaLayer(Value::Array(indexes.into_iter().map(|(i, s)| Value::Array(vec![Value::Int(i as i32), Value::String(s)])).collect()))),
+            Layer::L2S(indexes) => Ok(Layer::MetaLayer(Value::Array(indexes.into_iter().map(|(i, j, s)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32), Value::String(s)])).collect()))),
+            Layer::L3S(indexes) => Ok(Layer::MetaLayer(Value::Array(indexes.into_iter().map(|(i, j, k, s)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32), Value::Int(k as i32), Value::String(s)])).collect()))),
+        }
     }
 }
 
@@ -35,11 +51,18 @@ impl IntoLayer for String {
     fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
         Ok(Layer::Characters(self))
     }
+    fn into_meta_layer(self) -> TeangaResult<Layer> {
+        Ok(Layer::MetaLayer(Value::String(self)))
+    }
 }
 
 impl IntoLayer for &str {
-fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
+    fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
         Ok(Layer::Characters(self.to_string()))
+    }
+
+    fn into_meta_layer(self) -> TeangaResult<Layer> {
+        Ok(Layer::MetaLayer(Value::String(self.to_string())))
     }
 }
 
@@ -56,6 +79,10 @@ impl IntoLayer for Vec<u32> {
                 format!("Layer type L1 not supported for layer type {}", meta.layer_type)))
         }
     }
+
+    fn into_meta_layer(self) -> TeangaResult<Layer> {
+        Ok(Layer::MetaLayer(Value::Array(self.into_iter().map(|i| Value::Int(i as i32)).collect())))
+    }
 }
 
 impl IntoLayer for Vec<(u32, u32)> {
@@ -71,11 +98,19 @@ impl IntoLayer for Vec<(u32, u32)> {
                 format!("Layer type L2 not supported for layer type {}", meta.layer_type)))
         }
     }
+
+    fn into_meta_layer(self) -> TeangaResult<Layer> {
+        Ok(Layer::MetaLayer(Value::Array(self.into_iter().map(|(i, j)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32)])).collect())))
+    }
 }
 
 impl IntoLayer for Vec<(u32, u32, u32)> {
     fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
         Ok(Layer::L3(self))
+    }
+
+    fn into_meta_layer(self) -> TeangaResult<Layer> {
+        Ok(Layer::MetaLayer(Value::Array(self.into_iter().map(|(i, j, k)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32), Value::Int(k as i32)])).collect())))
     }
 }
 
@@ -83,11 +118,19 @@ impl IntoLayer for Vec<String> {
     fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
         Ok(Layer::LS(self))
     }
+
+    fn into_meta_layer(self) -> TeangaResult<Layer> {
+        Ok(Layer::MetaLayer(Value::Array(self.into_iter().map(|s| Value::String(s)).collect())))
+    }
 }
 
 impl IntoLayer for Vec<&'static str> {
     fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
         Ok(Layer::LS(self.iter().map(|s| s.to_string()).collect()))
+    }
+
+    fn into_meta_layer(self) -> TeangaResult<Layer> {
+        Ok(Layer::MetaLayer(Value::Array(self.iter().map(|s| Value::String(s.to_string())).collect())))
     }
 }
 
@@ -104,11 +147,19 @@ impl IntoLayer for Vec<(u32, String)> {
                 format!("Layer type L1S not supported for layer type {}", meta.layer_type)))
         }
     }
+
+    fn into_meta_layer(self) -> TeangaResult<Layer> {
+        Ok(Layer::MetaLayer(Value::Array(self.into_iter().map(|(i, s)| Value::Array(vec![Value::Int(i as i32), Value::String(s)])).collect())))
+    }
 }
 
 impl IntoLayer for Vec<(u32, &'static str)> {
     fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
         Ok(Layer::L1S(self.iter().map(|(i, s)| (*i, s.to_string())).collect()))
+    }
+
+    fn into_meta_layer(self) -> TeangaResult<Layer> {
+        Ok(Layer::MetaLayer(Value::Array(self.iter().map(|(i, s)| Value::Array(vec![Value::Int(*i as i32), Value::String(s.to_string())])).collect())))
     }
 }
 
@@ -125,11 +176,19 @@ impl IntoLayer for Vec<(u32, u32, String)> {
                 format!("Layer type L2S not supported for layer type {}", meta.layer_type)))
         }
     }
+
+    fn into_meta_layer(self) -> TeangaResult<Layer> {
+        Ok(Layer::MetaLayer(Value::Array(self.into_iter().map(|(i, j, s)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32), Value::String(s)])).collect())))
+    }
 }
 
 impl IntoLayer for Vec<(u32, u32, &'static str)> {
     fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
         Ok(Layer::L2S(self.iter().map(|(i, j, s)| (*i, *j, s.to_string())).collect()))
+    }
+
+    fn into_meta_layer(self) -> TeangaResult<Layer> {
+        Ok(Layer::MetaLayer(Value::Array(self.iter().map(|(i, j, s)| Value::Array(vec![Value::Int(*i as i32), Value::Int(*j as i32), Value::String(s.to_string())])).collect())))
     }
 }
 
@@ -137,11 +196,19 @@ impl IntoLayer for Vec<(u32, u32, u32, String)> {
     fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
         Ok(Layer::L3S(self))
     }
+
+    fn into_meta_layer(self) -> TeangaResult<Layer> {
+        Ok(Layer::MetaLayer(Value::Array(self.into_iter().map(|(i, j, k, s)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32), Value::Int(k as i32), Value::String(s)])).collect())))
+    }
 }
 
 impl IntoLayer for Vec<(u32, u32, u32, &'static str)> {
     fn into_layer(self, _meta : &LayerDesc) -> TeangaResult<Layer> {
         Ok(Layer::L3S(self.iter().map(|(i, j, k, s)| (*i, *j, *k, s.to_string())).collect()))
+    }
+
+    fn into_meta_layer(self) -> TeangaResult<Layer> {
+        Ok(Layer::MetaLayer(Value::Array(self.iter().map(|(i, j, k, s)| Value::Array(vec![Value::Int(*i as i32), Value::Int(*j as i32), Value::Int(*k as i32), Value::String(s.to_string())])).collect())))
     }
 }
 
@@ -211,7 +278,7 @@ pub enum Layer {
     L1S(Vec<(u32,String)>),
     L2S(Vec<(u32,u32,String)>),
     L3S(Vec<(u32,u32,u32,String)>),
-    MetaLayer(Vec<HashMap<String, Value>>)
+    MetaLayer(Value)
 }
 
 impl Layer {
