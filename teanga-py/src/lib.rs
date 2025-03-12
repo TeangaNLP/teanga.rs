@@ -241,7 +241,7 @@ impl IntoPy<PyObject> for PyRawLayer {
             Layer::L1S(val) => val.into_py(py),
             Layer::L2S(val) => val.into_py(py),
             Layer::L3S(val) => val.into_py(py),
-            Layer::MetaLayer(val) => val_to_pyval(val).into_py(py),
+            Layer::MetaLayer(val) => val.map(|v| val_to_pyval(v)).into_py(py),
         }
     }
 }
@@ -278,7 +278,7 @@ impl FromPyObject<'_> for PyRawLayer {
         } else if let Ok(layer) = v.extract::<Vec<Vec<U32OrString>>>() {
             Ok(PyRawLayer(vecus2rawlayer(layer).map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e))?))
         } else if let Ok(layer) = v.extract::<PyValue>() {
-            Ok(PyRawLayer(Layer::MetaLayer(layer.val())))
+            Ok(PyRawLayer(Layer::MetaLayer(Some(layer.val()))))
         } else {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
                 format!("Unknown layer type {}", v.extract::<String>()?)))

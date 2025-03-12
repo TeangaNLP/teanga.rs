@@ -22,7 +22,7 @@ pub enum TCFLayer {
     L1S(TCFIndex, TCFData, bool),
     L2S(TCFIndex, TCFIndex, TCFData, bool, bool),
     L3S(TCFIndex, TCFIndex, TCFIndex, TCFData, bool, bool),
-    MetaLayer(Value)
+    MetaLayer(Option<Value>)
 }
 
 impl TCFLayer {

@@ -190,3 +190,8 @@ teanga-cli/c4.jsonl.gz
 teanga-cli/c4.tcf
 teanga-cli/c4.yaml
 teanga/tmp2
+teanga-cli/c4.json2
+teanga-cli/c4.yaml.gz
+teanga-cli/flamegraph.svg
+teanga-cli/perf.data
+teanga-cli/tmp.json

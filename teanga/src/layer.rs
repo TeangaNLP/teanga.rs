@@ -35,14 +35,14 @@ impl IntoLayer for Layer {
     fn into_meta_layer(self) -> TeangaResult<Layer> {
         match self {
             Layer::MetaLayer(v) => Ok(Layer::MetaLayer(v)),
-            Layer::Characters(s) => Ok(Layer::MetaLayer(Value::String(s))),
-            Layer::L1(indexes) => Ok(Layer::MetaLayer(Value::Array(indexes.into_iter().map(|i| Value::Int(i as i32)).collect()))),
-            Layer::L2(indexes) => Ok(Layer::MetaLayer(Value::Array(indexes.into_iter().map(|(i, j)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32)])).collect()))),
-            Layer::L3(indexes) => Ok(Layer::MetaLayer(Value::Array(indexes.into_iter().map(|(i, j, k)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32), Value::Int(k as i32)])).collect()))),
-            Layer::LS(indexes) => Ok(Layer::MetaLayer(Value::Array(indexes.into_iter().map(|s| Value::String(s)).collect()))),
-            Layer::L1S(indexes) => Ok(Layer::MetaLayer(Value::Array(indexes.into_iter().map(|(i, s)| Value::Array(vec![Value::Int(i as i32), Value::String(s)])).collect()))),
-            Layer::L2S(indexes) => Ok(Layer::MetaLayer(Value::Array(indexes.into_iter().map(|(i, j, s)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32), Value::String(s)])).collect()))),
-            Layer::L3S(indexes) => Ok(Layer::MetaLayer(Value::Array(indexes.into_iter().map(|(i, j, k, s)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32), Value::Int(k as i32), Value::String(s)])).collect()))),
+            Layer::Characters(s) => Ok(Layer::MetaLayer(Some(Value::String(s)))),
+            Layer::L1(indexes) => Ok(Layer::MetaLayer(Some(Value::Array(indexes.into_iter().map(|i| Value::Int(i as i32)).collect())))),
+            Layer::L2(indexes) => Ok(Layer::MetaLayer(Some(Value::Array(indexes.into_iter().map(|(i, j)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32)])).collect())))),
+            Layer::L3(indexes) => Ok(Layer::MetaLayer(Some(Value::Array(indexes.into_iter().map(|(i, j, k)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32), Value::Int(k as i32)])).collect())))),
+            Layer::LS(indexes) => Ok(Layer::MetaLayer(Some(Value::Array(indexes.into_iter().map(|s| Value::String(s)).collect())))),
+            Layer::L1S(indexes) => Ok(Layer::MetaLayer(Some(Value::Array(indexes.into_iter().map(|(i, s)| Value::Array(vec![Value::Int(i as i32), Value::String(s)])).collect())))),
+            Layer::L2S(indexes) => Ok(Layer::MetaLayer(Some(Value::Array(indexes.into_iter().map(|(i, j, s)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32), Value::String(s)])).collect())))),
+            Layer::L3S(indexes) => Ok(Layer::MetaLayer(Some(Value::Array(indexes.into_iter().map(|(i, j, k, s)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32), Value::Int(k as i32), Value::String(s)])).collect())))),
         }
     }
 }
@@ -52,7 +52,7 @@ impl IntoLayer for String {
         Ok(Layer::Characters(self))
     }
     fn into_meta_layer(self) -> TeangaResult<Layer> {
-        Ok(Layer::MetaLayer(Value::String(self)))
+        Ok(Layer::MetaLayer(Some(Value::String(self))))
     }
 }
 
@@ -62,7 +62,7 @@ impl IntoLayer for &str {
     }
 
     fn into_meta_layer(self) -> TeangaResult<Layer> {
-        Ok(Layer::MetaLayer(Value::String(self.to_string())))
+        Ok(Layer::MetaLayer(Some(Value::String(self.to_string()))))
     }
 }
 
@@ -81,7 +81,7 @@ impl IntoLayer for Vec<u32> {
     }
 
     fn into_meta_layer(self) -> TeangaResult<Layer> {
-        Ok(Layer::MetaLayer(Value::Array(self.into_iter().map(|i| Value::Int(i as i32)).collect())))
+        Ok(Layer::MetaLayer(Some(Value::Array(self.into_iter().map(|i| Value::Int(i as i32)).collect()))))
     }
 }
 
@@ -100,7 +100,7 @@ impl IntoLayer for Vec<(u32, u32)> {
     }
 
     fn into_meta_layer(self) -> TeangaResult<Layer> {
-        Ok(Layer::MetaLayer(Value::Array(self.into_iter().map(|(i, j)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32)])).collect())))
+        Ok(Layer::MetaLayer(Some(Value::Array(self.into_iter().map(|(i, j)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32)])).collect()))))
     }
 }
 
@@ -110,7 +110,7 @@ impl IntoLayer for Vec<(u32, u32, u32)> {
     }
 
     fn into_meta_layer(self) -> TeangaResult<Layer> {
-        Ok(Layer::MetaLayer(Value::Array(self.into_iter().map(|(i, j, k)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32), Value::Int(k as i32)])).collect())))
+        Ok(Layer::MetaLayer(Some(Value::Array(self.into_iter().map(|(i, j, k)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32), Value::Int(k as i32)])).collect()))))
     }
 }
 
@@ -120,7 +120,7 @@ impl IntoLayer for Vec<String> {
     }
 
     fn into_meta_layer(self) -> TeangaResult<Layer> {
-        Ok(Layer::MetaLayer(Value::Array(self.into_iter().map(|s| Value::String(s)).collect())))
+        Ok(Layer::MetaLayer(Some(Value::Array(self.into_iter().map(|s| Value::String(s)).collect()))))
     }
 }
 
@@ -130,7 +130,7 @@ impl IntoLayer for Vec<&'static str> {
     }
 
     fn into_meta_layer(self) -> TeangaResult<Layer> {
-        Ok(Layer::MetaLayer(Value::Array(self.iter().map(|s| Value::String(s.to_string())).collect())))
+        Ok(Layer::MetaLayer(Some(Value::Array(self.iter().map(|s| Value::String(s.to_string())).collect()))))
     }
 }
 
@@ -149,7 +149,7 @@ impl IntoLayer for Vec<(u32, String)> {
     }
 
     fn into_meta_layer(self) -> TeangaResult<Layer> {
-        Ok(Layer::MetaLayer(Value::Array(self.into_iter().map(|(i, s)| Value::Array(vec![Value::Int(i as i32), Value::String(s)])).collect())))
+        Ok(Layer::MetaLayer(Some(Value::Array(self.into_iter().map(|(i, s)| Value::Array(vec![Value::Int(i as i32), Value::String(s)])).collect()))))
     }
 }
 
@@ -159,7 +159,7 @@ impl IntoLayer for Vec<(u32, &'static str)> {
     }
 
     fn into_meta_layer(self) -> TeangaResult<Layer> {
-        Ok(Layer::MetaLayer(Value::Array(self.iter().map(|(i, s)| Value::Array(vec![Value::Int(*i as i32), Value::String(s.to_string())])).collect())))
+        Ok(Layer::MetaLayer(Some(Value::Array(self.iter().map(|(i, s)| Value::Array(vec![Value::Int(*i as i32), Value::String(s.to_string())])).collect()))))
     }
 }
 
@@ -178,7 +178,7 @@ impl IntoLayer for Vec<(u32, u32, String)> {
     }
 
     fn into_meta_layer(self) -> TeangaResult<Layer> {
-        Ok(Layer::MetaLayer(Value::Array(self.into_iter().map(|(i, j, s)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32), Value::String(s)])).collect())))
+        Ok(Layer::MetaLayer(Some(Value::Array(self.into_iter().map(|(i, j, s)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32), Value::String(s)])).collect()))))
     }
 }
 
@@ -188,7 +188,7 @@ impl IntoLayer for Vec<(u32, u32, &'static str)> {
     }
 
     fn into_meta_layer(self) -> TeangaResult<Layer> {
-        Ok(Layer::MetaLayer(Value::Array(self.iter().map(|(i, j, s)| Value::Array(vec![Value::Int(*i as i32), Value::Int(*j as i32), Value::String(s.to_string())])).collect())))
+        Ok(Layer::MetaLayer(Some(Value::Array(self.iter().map(|(i, j, s)| Value::Array(vec![Value::Int(*i as i32), Value::Int(*j as i32), Value::String(s.to_string())])).collect()))))
     }
 }
 
@@ -198,7 +198,7 @@ impl IntoLayer for Vec<(u32, u32, u32, String)> {
     }
 
     fn into_meta_layer(self) -> TeangaResult<Layer> {
-        Ok(Layer::MetaLayer(Value::Array(self.into_iter().map(|(i, j, k, s)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32), Value::Int(k as i32), Value::String(s)])).collect())))
+        Ok(Layer::MetaLayer(Some(Value::Array(self.into_iter().map(|(i, j, k, s)| Value::Array(vec![Value::Int(i as i32), Value::Int(j as i32), Value::Int(k as i32), Value::String(s)])).collect()))))
     }
 }
 
@@ -208,7 +208,7 @@ impl IntoLayer for Vec<(u32, u32, u32, &'static str)> {
     }
 
     fn into_meta_layer(self) -> TeangaResult<Layer> {
-        Ok(Layer::MetaLayer(Value::Array(self.iter().map(|(i, j, k, s)| Value::Array(vec![Value::Int(*i as i32), Value::Int(*j as i32), Value::Int(*k as i32), Value::String(s.to_string())])).collect())))
+        Ok(Layer::MetaLayer(Some(Value::Array(self.iter().map(|(i, j, k, s)| Value::Array(vec![Value::Int(*i as i32), Value::Int(*j as i32), Value::Int(*k as i32), Value::String(s.to_string())])).collect()))))
     }
 }
 
@@ -278,7 +278,7 @@ pub enum Layer {
     L1S(Vec<(u32,String)>),
     L2S(Vec<(u32,u32,String)>),
     L3S(Vec<(u32,u32,u32,String)>),
-    MetaLayer(Value)
+    MetaLayer(Option<Value>)
 }
 
 impl Layer {

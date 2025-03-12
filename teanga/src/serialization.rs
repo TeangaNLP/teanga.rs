@@ -372,4 +372,20 @@ ecWc:
  
         read_yaml_meta(data.as_bytes(), &mut SimpleCorpus::new()).unwrap();
     }
+
+    #[test]
+    fn test_data() {
+        let data = "_meta:
+  text:
+    type: characters
+aeW7:
+  text: Foobar
+  _created: 08.09.2016 00:29
+  _newpar: null";
+
+        let mut corpus = SimpleCorpus::new();
+        read_yaml(data.as_bytes(), &mut corpus).unwrap();
+    }
+
+        
 }
