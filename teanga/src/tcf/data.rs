@@ -110,7 +110,8 @@ impl TCFData {
                 Ok(TCFData::Enum(v.to_vec()))
             }
             Some(DataType::Link) => {
-                panic!("Link data type not supported");
+                let v = reader_to_index_results(input, s)?;
+                Ok(TCFData::String(v))
             }
             None => {
                 panic!("No data type specified");

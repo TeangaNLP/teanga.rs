@@ -359,6 +359,7 @@ impl WriteableCorpus for SimpleCorpus {
 }
 
 #[derive(Debug,Clone,PartialEq, Serialize,Deserialize)]
+#[serde(untagged)]
 /// Any valid JSON/YAML value
 pub enum Value {
     Bool(bool),

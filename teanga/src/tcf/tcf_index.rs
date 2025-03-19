@@ -2,6 +2,7 @@ use std::io::BufRead;
 
 use crate::tcf::TCFResult;
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct TCFIndex {
     pub precision: u8,
     pub length: usize,
@@ -10,7 +11,21 @@ pub struct TCFIndex {
 
 impl TCFIndex {
     pub fn from_vec(vec : &Vec<u32>) -> TCFIndex {
+        if vec.is_empty() {
+            return TCFIndex {
+                precision: 0,
+                length: 0,
+                data: Vec::new(),
+            };
+        }
         let max = vec.iter().max().unwrap();
+        if max == &0 {
+            return TCFIndex {
+                precision: 0,
+                length: vec.len(),
+                data: Vec::new(),
+            };
+        }
         let precision = f32::log2((max + 1) as f32).ceil() as u8;
         let length = vec.len();
         let mut data = Vec::new();
@@ -45,6 +60,10 @@ impl TCFIndex {
     }
 
     pub fn to_vec(&self) -> Vec<u32> {
+        if self.precision == 0 {
+            // create a vec of self.length zeros
+            return vec![0; self.length];
+        }
         let mut vec = Vec::new();
         let mut offset = 0usize;
         for _ in 0..self.length {
@@ -224,6 +243,22 @@ mod tests {
     #[test]
     fn test_tcf_to_vec3() {
         let vec = vec![1, 1000];
+        let tcf = TCFIndex::from_vec(&vec);
+        let vec2 = tcf.to_vec();
+        assert_eq!(vec, vec2);
+    }
+
+    #[test]
+    fn test_empty() {
+        let vec = Vec::new();
+        let tcf = TCFIndex::from_vec(&vec);
+        let vec2 = tcf.to_vec();
+        assert_eq!(vec, vec2);
+    }
+
+    #[test]
+    fn test_all_zero() {
+        let vec = vec![0,0];
         let tcf = TCFIndex::from_vec(&vec);
         let vec2 = tcf.to_vec();
         assert_eq!(vec, vec2);

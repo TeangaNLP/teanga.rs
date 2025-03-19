@@ -265,6 +265,7 @@ pub enum SerializeError {
 mod tests {
     use super::*;
     use crate::SimpleCorpus;
+    use std::collections::HashSet;
 
     #[test]
     fn test_deserialize_yaml() {
@@ -387,5 +388,57 @@ aeW7:
         read_yaml(data.as_bytes(), &mut corpus).unwrap();
     }
 
-        
+    #[test]
+    fn test_twitter() {
+        let data = "_meta:
+    text:
+        type: characters
+dkJv:
+    text: hopeless for tmr :(
+    _user: '{\"screen_name\": \"yuwraxkim\", \"time_zone\": \"Jakarta\", \"profile_background_image_url\":
+  \"http://pbs.twimg.com/profile_background_images/585476378365014016/j1mvQu3c.png\",
+  \"profile_background_image_url_https\": \"https://pbs.twimg.com/profile_background_images/585476378365014016/j1mvQu3c.png\",
+  \"default_profile_image\": false, \"url\": null, \"profile_text_color\": \"000000\", \"following\":
+  false, \"listed_count\": 3, \"entities\": {\"description\": {\"urls\": []}}, \"utc_offset\":
+  25200, \"profile_sidebar_border_color\": \"000000\", \"name\": \"yuwra \u{2708} \", \"favourites_count\":
+  196, \"followers_count\": 1281, \"location\": \"wearegsd;favor;pucukfams;barbx\", \"protected\":
+  false, \"notifications\": false, \"profile_image_url_https\": \"https://pbs.twimg.com/profile_images/622631732399898624/kmYsX_k1_normal.jpg\",
+  \"profile_use_background_image\": true, \"profile_image_url\": \"http://pbs.twimg.com/profile_images/622631732399898624/kmYsX_k1_normal.jpg\",
+  \"lang\": \"id\", \"statuses_count\": 19710, \"friends_count\": 1264, \"profile_banner_url\":
+  \"https://pbs.twimg.com/profile_banners/3078803375/1433287528\", \"geo_enabled\": true,
+  \"is_translator\": false, \"contributors_enabled\": false, \"profile_sidebar_fill_color\":
+  \"000000\", \"created_at\": \"Sun Mar 08 05:43:40 +0000 2015\", \"verified\": false, \"profile_link_color\":
+  \"000000\", \"is_translation_enabled\": false, \"has_extended_profile\": false, \"id_str\":
+  \"3078803375\", \"follow_request_sent\": false, \"profile_background_color\": \"000000\",
+  \"default_profile\": false, \"profile_background_tile\": true, \"id\": 3078803375, \"description\":
+  \"\u{21e8} [V] TravelGency \u{2588} 2/4 Goddest from Girls Day \u{2588} 92L \u{2588} sucrp\"}'
+    _retweet_count: '0'
+    _favorited: 'false'
+    _entities: '{\"hashtags\": [], \"user_mentions\": [], \"urls\": [], \"symbols\": []}'
+    _source: <a href=\"https://mobile.twitter.com\" rel=\"nofollow\">Mobile Web (M2)</a>
+    _truncated: 'false'
+    _is_quote_status: 'false'
+    _lang: en
+    _retweeted: 'false'
+    _created_at: Fri Jul 24 10:42:49 +0000 2015
+    _metadata: '{\"iso_language_code\": \"en\", \"result_type\": \"recent\"}'
+    _favorite_count: '0'
+    _id_str: '624530164626534400'
+    _id: '624530164626534400'".to_string();
+        let mut corpus = SimpleCorpus::new();
+        read_yaml(data.as_bytes(), &mut corpus).unwrap();
+        let mut buf = Vec::new();
+        write_yaml(&mut buf, &corpus).unwrap();
+        let out_yaml = String::from_utf8(buf).unwrap().replace("\n", "");
+        let left_tokens : HashSet<&str> = HashSet::from_iter(out_yaml.split(" "));
+        let data = data.replace("\n", "");
+        let right_tokens = HashSet::from_iter(data.split(" "));
+        for a in left_tokens.difference(&right_tokens) {
+            eprintln!("{}", a);
+        }
+        for a in right_tokens.difference(&left_tokens) {
+            eprintln!("{}", a);
+        }
+        assert_eq!(left_tokens, right_tokens);
+    }
 }
