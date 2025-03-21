@@ -139,6 +139,11 @@ pub trait Corpus {
     /// Get the layer metadata
     fn get_meta(&self) -> &HashMap<String, LayerDesc>;
 
+    /// Clone the layer metadata
+    fn clone_meta(&self) -> HashMap<String, LayerDesc> {
+        self.get_meta().clone()
+    }
+
     /// Get the order of the documents in the corpus
     fn get_order(&self) -> &Vec<String>;
 
@@ -523,7 +528,7 @@ pub enum TeangaJsonError {
 pub enum TeangaYamlError {
     /// YAML format error
     #[error("YAML error: {0}")]
-    YamlError(#[from] serde_yaml::Error),
+    YamlError(#[from] serde_yml::Error),
     /// Generic I/O error
     #[error("IO error: {0}")]
     IOError(#[from] std::io::Error),

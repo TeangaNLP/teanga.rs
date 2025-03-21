@@ -142,6 +142,10 @@ impl Corpus for ChannelCorpusReceiver {
         panic!("Not possible for channel corpus");
     }
 
+    fn clone_meta(&self) -> HashMap<String, LayerDesc> {
+        self.meta.borrow().clone()
+    }
+
     fn get_order(&self) -> &Vec<String> {
         panic!("Not possible for channel corpus");
     }

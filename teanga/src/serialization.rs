@@ -35,6 +35,7 @@ impl <'de,'a, C: WriteableCorpus> Visitor<'de> for TeangaVisitor2<'a, C> {
             } else if !self.1 {
                 let doc = map.next_value::<HashMap<String, Layer>>()?;
                 let id = self.0.add_doc(doc).map_err(serde::de::Error::custom)?;
+                eprintln!("Reading {}", id);
                 if id[..min(id.len(), key.len())] != key[..min(id.len(), key.len())] {
                     return Err(serde::de::Error::custom(format!("Document fails hash check: {} != {}", id, key)))
                 }
@@ -52,9 +53,10 @@ fn corpus_serialize<C : Corpus, S>(c : &C, serializer: S) -> Result<S::Ok, S::Er
     where S: Serializer, C::Content : Serialize
 {
     let mut map = serializer.serialize_map(Some(3))?;
-    map.serialize_entry("_meta", c.get_meta())?;
+    map.serialize_entry("_meta", &c.clone_meta())?;
     for res in c.iter_doc_ids() {
         let (id, doc) = res.map_err(serde::ser::Error::custom)?;
+        eprintln!("Writing {}", id);
         map.serialize_entry(&id, &doc)?;
     }
     map.end()
@@ -78,14 +80,14 @@ pub fn pretty_yaml_serialize<W : Write, C: Corpus>(corpus: &C, mut writer: W) ->
         writer.write_all(name.as_bytes())?;
         writer.write_all(b":\n")?;
         writer.write_all(b"        type: ")?;
-        writer.write_all(serde_yaml::to_string(&meta.layer_type)?.as_bytes())?;
+        writer.write_all(serde_yml::to_string(&meta.layer_type)?.as_bytes())?;
         if meta.base != Some("".to_string()) && meta.base != None {
             writer.write_all(b"        base: ")?;
-            writer.write_all(serde_yaml::to_string(&meta.base)?.as_bytes())?;
+            writer.write_all(serde_yml::to_string(&meta.base)?.as_bytes())?;
         }
         if let Some(ref data) = meta.data {
             writer.write_all(b"        data: ")?;
-            writer.write_all(serde_yaml::to_string(data)?.as_bytes())?;
+            writer.write_all(serde_yml::to_string(data)?.as_bytes())?;
         }
         if let Some(ref values) = meta.link_types {
             writer.write_all(b"        link_types: ")?;
@@ -94,7 +96,7 @@ pub fn pretty_yaml_serialize<W : Write, C: Corpus>(corpus: &C, mut writer: W) ->
         }
         if let Some(ref target) = meta.target {
             writer.write_all(b"        target: ")?;
-            writer.write_all(serde_yaml::to_string(target)?.as_bytes())?;
+            writer.write_all(serde_yml::to_string(target)?.as_bytes())?;
         }
         if let Some(ref default) = meta.default {
             writer.write_all(b"        default: ")?;
@@ -112,7 +114,7 @@ pub fn pretty_yaml_serialize<W : Write, C: Corpus>(corpus: &C, mut writer: W) ->
                 writer.write_all(b"    ")?;
                 writer.write_all(name.as_bytes())?;
                 writer.write_all(b": ")?;
-                writer.write_all(serde_yaml::to_string(layer)?.as_bytes())?;
+                writer.write_all(serde_yml::to_string(layer)?.as_bytes())?;
             } else {
                 writer.write_all(b"    ")?;
                 writer.write_all(name.as_bytes())?;
@@ -154,8 +156,10 @@ pub fn read_json_meta<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut
 /// * `reader` - The reader to read from
 /// * `corpus` - The corpus to read into
 /// * `meta_only` - Whether to read only the metadata
-pub fn read_yaml<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -> Result<(), serde_yaml::Error> {
-    let deserializer = serde_yaml::Deserializer::from_reader(reader);
+pub fn read_yaml<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -> Result<(), serde_yml::Error> {
+    eprintln!("Reading YAML");
+    let deserializer = serde_yml::Deserializer::from_reader(reader);
+    eprintln!("Deserializer created");
     deserializer.deserialize_any(TeangaVisitor2(corpus, false))
 }
 
@@ -165,8 +169,8 @@ pub fn read_yaml<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -
 //
 // * `reader` - The reader to read from
 // * `corpus` - The corpus to read into
-pub fn read_yaml_meta<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -> Result<(), serde_yaml::Error> {
-    let deserializer = serde_yaml::Deserializer::from_reader(reader);
+pub fn read_yaml_meta<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -> Result<(), serde_yml::Error> {
+    let deserializer = serde_yml::Deserializer::from_reader(reader);
     deserializer.deserialize_any(TeangaVisitor2(corpus, true))
 }
 
@@ -216,9 +220,9 @@ pub fn write_json<W : Write, C : Corpus>(mut writer : W, corpus : &C) -> Result<
 ///
 /// * `writer` - The writer to write to
 /// * `corpus` - The corpus to write
-pub fn write_yaml<W : Write, C : Corpus>(mut writer : W, corpus : &C) -> Result<(), serde_yaml::Error> 
+pub fn write_yaml<W : Write, C : Corpus>(mut writer : W, corpus : &C) -> Result<(), serde_yml::Error> 
     where C::Content : Serialize {
-    let mut ser = serde_yaml::Serializer::new(&mut writer);
+    let mut ser = serde_yml::Serializer::new(&mut writer);
     corpus_serialize(corpus, &mut ser)
 }
 
@@ -247,7 +251,7 @@ pub enum SerializeError {
     Json(#[from] serde_json::Error),
     /// An error occurred during YAML serialization
     #[error("Yaml error: {0}")]
-    Yaml(#[from] serde_yaml::Error),
+    Yaml(#[from] serde_yml::Error),
     /// A generic I/O Error
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
