@@ -29,6 +29,7 @@ use itertools::Itertools;
 use serde::{Serialize,Deserialize};
 use thiserror::Error;
 
+pub mod channel_corpus;
 #[cfg(any(feature = "sled", feature = "fjall", feature = "redb"))]
 pub mod disk_corpus;
 pub mod document;

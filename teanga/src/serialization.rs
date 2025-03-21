@@ -53,8 +53,9 @@ fn corpus_serialize<C : Corpus, S>(c : &C, serializer: S) -> Result<S::Ok, S::Er
 {
     let mut map = serializer.serialize_map(Some(3))?;
     map.serialize_entry("_meta", c.get_meta())?;
-    for id in c.get_order() {
-        map.serialize_entry(id, &c.get_doc_by_id(id).map_err(serde::ser::Error::custom)?)?;
+    for res in c.iter_doc_ids() {
+        let (id, doc) = res.map_err(serde::ser::Error::custom)?;
+        map.serialize_entry(&id, &doc)?;
     }
     map.end()
 }
@@ -101,10 +102,10 @@ pub fn pretty_yaml_serialize<W : Write, C: Corpus>(corpus: &C, mut writer: W) ->
             writer.write_all(b"\n")?;
         }
     }
-    for id in corpus.get_order() {
+    for res in corpus.iter_doc_ids() {
+        let (id, doc) = res?;
         writer.write_all(id.as_bytes())?;
         writer.write_all(b":\n")?;
-        let doc = corpus.get_doc_by_id(id)?;
         for name in doc.keys().iter().sorted() {
             let layer = &doc[name];
             if let Layer::Characters(_) = layer {
@@ -191,7 +192,7 @@ pub fn read_jsonl<'de, R: BufRead, C : WriteableCorpus>(reader: R, corpus : &mut
 ///
 /// * `line` - The line to read
 /// * `corpus` - The corpus to read into
-pub fn read_jsonl_line<'de, C : WriteableCorpus>(line: String,
+pub fn read_jsonl_line<'de, C : Corpus>(line: String,
     corpus : &mut C) -> Result<Document, TeangaJsonError> {
         let doc : HashMap<String, Layer> = serde_json::from_str(&line)?;
         Ok(Document::new(doc, corpus.get_meta())?)

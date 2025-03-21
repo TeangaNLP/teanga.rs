@@ -11,6 +11,7 @@ use teanga::read_yaml_meta;
 use teanga::read_json;
 use teanga::read_jsonl;
 use teanga::read_yaml;
+use std::thread;
 
 // for CBOR conversion
 use std::io::BufWriter;
@@ -88,7 +89,7 @@ impl Format {
     }
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(name = "convert", about = "Convert a Teanga Corpus")]
 struct ConvertCommand {
     /// The file to convert
@@ -157,109 +158,140 @@ impl LoadCommand {
 
 impl ConvertCommand {
     fn run(&self) -> Result<(), String> {
-        let mut input = if self.input.ends_with(".gz") {
-            let reader = BufReader::new(flate2::read::GzDecoder::new(File::open(&self.input)
-                .map_err(|e| format!("Failed to open input file: {}", e))?));
-            Box::new(reader) as Box<dyn std::io::BufRead>
-        } else {
-            Box::new(BufReader::new(File::open(&self.input)
-                .map_err(|e| format!("Failed to open input file: {}", e))?)) as Box<dyn std::io::BufRead>
-        };
-        let mut output = BufWriter::new(File::create(&self.output)
-            .map_err(|e| format!("Failed to create output file: {}", e))?);
-        let mut corpus = teanga::SimpleCorpus::new();
-        match self.meta_file {
-            Some(ref meta_file) => {
-                    corpus.read_yaml_header(File::open(meta_file)
-                        .map_err(|e| format!("Failed to open meta file: {}", e))?).unwrap();
-                        }
-            None => {}
-        }
-
-        let mut progressive = false;
-
-        match self.input_format.guess(&self.input) {
-            Format::JSON => {
-                teanga::serialization::read_json(&mut input, &mut corpus)
-                    .map_err(|e| format!("Failed to read JSON: {}", e))?;
-            }
-            Format::JSONL => {
-                if self.meta_file.is_none() {
-                    return Err("Meta file is required for JSONL".to_string());
-                }
-                if self.output_format.guess(&self.output) == Format::TCF {
-                    progressive = true;
+        let progressive = self.input_format.guess(&self.input) == Format::JSONL && self.output_format.guess(&self.output) == Format::TCF;
+        if !progressive {
+            let (mut corpus, rx_corpus) = teanga::channel_corpus::channel_corpus();
+            let command = self.clone();
+            let handle1 = thread::spawn(move || {
+                let mut input = if command.input.ends_with(".gz") {
+                    let reader = BufReader::new(flate2::read::GzDecoder::new(File::open(&command.input)
+                        .map_err(|e| format!("Failed to open input file: {}", e)).unwrap()));
+                    Box::new(reader) as Box<dyn std::io::BufRead>
                 } else {
-                    teanga::serialization::read_jsonl(&mut input, &mut corpus)
-                        .map_err(|e| format!("Failed to read JSONL: {}", e))?;
-                }
-            }
-            Format::YAML => {
-                teanga::serialization::read_yaml(&mut input, &mut corpus)
-                    .map_err(|e| format!("Failed to read YAML: {}", e))?;
-            }
-            Format::TCF => {
-                teanga::read_tcf(&mut input, &mut corpus)
-                    .map_err(|e| format!("Failed to read TCF: {}", e))?;
-            }
-            Format::Guess => panic!("unreachable")
-        }
-        match self.output_format.guess(&self.output) {
-            Format::JSON => {
-                teanga::serialization::write_json(&mut output, &corpus)
-                    .map_err(|e| format!("Failed to write JSON: {}", e))?;
-            }
-            Format::JSONL => {
-                teanga::serialization::write_jsonl(&mut output, &corpus)
-                    .map_err(|e| format!("Failed to write JSONL: {}", e))?;
-            }
-            Format::YAML => {
-                teanga::serialization::write_yaml(&mut output, &corpus)
-                    .map_err(|e| format!("Failed to write YAML: {}", e))?;
-            }
-            Format::TCF => {
-                let config = match self.compression {
-                    StringCompression::None => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::None),
-                    StringCompression::Smaz => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::Smaz),
-                    StringCompression::Shoco => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::ShocoDefault),
-                    StringCompression::Generate => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::GenerateShocoModel(self.compression_bytes)),
+                    Box::new(BufReader::new(File::open(&command.input)
+                        .map_err(|e| format!("Failed to open input file: {}", e)).unwrap())) as Box<dyn std::io::BufRead>
                 };
-                if progressive {
-                    let (mut cache, _) = teanga::write_tcf_header(&mut output, corpus.get_meta())
-                        .map_err(|e| format!("Failed to write TCF: {}", e))?;
-                    let replay = std::cell::RefCell::new(Vec::new());
-                    let do_replay = std::cell::RefCell::new(true);
-                    let mut iter : Box<dyn Iterator<Item=Result<Document, TeangaError>>> = Box::new(
-                        input.lines().map(|line| {
-                            //let line = line.map_err(|e| format!("Failed to read line: {}", e))?;
-                            //let doc = teanga::serialization::read_jsonl_line(line, &mut corpus).map_err(|e| format!("Failed to parse JSON: {}", e))?;
-                            let line = line.expect("Failed to read line");
-                            let doc = teanga::serialization::read_jsonl_line(line, &mut corpus.clone()).expect("Failed to parse JSON");
-                            if *do_replay.borrow() {
-                                replay.borrow_mut().push(doc.clone());
-                            }
-                            Ok(doc)
-                        }));
-                    let compressor = teanga::write_tcf_config(&mut output, &mut iter, &config)
-                        .map_err(|e| format!("Failed to write TCF: {}", e))?;
-                    let replay = replay.clone();
-                    for doc in replay.borrow().iter() {
-                        teanga::write_tcf_doc(&mut output, doc.clone(), &mut cache, corpus.get_meta(), &compressor)
-                            .map_err(|e| format!("Failed to write TCF: {}", e))?;
-                    }
-                    *do_replay.borrow_mut() = false;
-                    for doc in iter {
-                        let doc = doc.map_err(|e| format!("Failed to read document: {}", e))?;
-                        teanga::write_tcf_doc(&mut output, doc, &mut cache, corpus.get_meta(), &compressor)
-                            .map_err(|e| format!("Failed to write TCF: {}", e))?;
-                    }
-                } else {
-                    teanga::write_tcf_with_config(&mut output, &corpus, &config)
-                        .map_err(|e| format!("Failed to write TCF: {}", e))?;
+
+                match command.meta_file {
+                    Some(ref meta_file) => {
+                            corpus.read_yaml_header(File::open(meta_file)
+                                .map_err(|e| format!("Failed to open meta file: {}", e)).unwrap()).unwrap();
+                                }
+                    None => {}
                 }
-            }
-            Format::Guess => panic!("unreachable")
+
+                match command.input_format.guess(&command.input) {
+                    Format::JSON => {
+                        teanga::serialization::read_json(&mut input, &mut corpus)
+                            .map_err(|e| format!("Failed to read JSON: {}", e)).unwrap();
+                    }
+                    Format::JSONL => {
+                        if command.meta_file.is_none() {
+                            panic!("Meta file is required for JSONL");
+                        }
+                        if command.output_format.guess(&command.output) == Format::TCF {
+                        } else {
+                            teanga::serialization::read_jsonl(&mut input, &mut corpus)
+                                .map_err(|e| format!("Failed to read JSONL: {}", e)).unwrap();
+                        }
+                    }
+                    Format::YAML => {
+                        teanga::serialization::read_yaml(&mut input, &mut corpus)
+                            .map_err(|e| format!("Failed to read YAML: {}", e)).unwrap();
+                    }
+                    Format::TCF => {
+                        teanga::read_tcf(&mut input, &mut corpus)
+                            .map_err(|e| format!("Failed to read TCF: {}", e)).unwrap();
+                    }
+                    Format::Guess => panic!("unreachable")
+                };
+
+                corpus.close();
+            });
+            let command = self.clone();
+            let handle2 = thread::spawn(move || {
+                let mut output = BufWriter::new(File::create(&command.output)
+                    .map_err(|e| format!("Failed to create output file: {}", e)).unwrap());
+
+                match command.output_format.guess(&command.output) {
+                    Format::JSON => {
+                        teanga::serialization::write_json(&mut output, &rx_corpus)
+                            .map_err(|e| format!("Failed to write JSON: {}", e)).unwrap();
+                    }
+                    Format::JSONL => {
+                        teanga::serialization::write_jsonl(&mut output, &rx_corpus)
+                            .map_err(|e| format!("Failed to write JSONL: {}", e)).unwrap();
+                    }
+                    Format::YAML => {
+                        teanga::serialization::write_yaml(&mut output, &rx_corpus)
+                            .map_err(|e| format!("Failed to write YAML: {}", e)).unwrap();
+                    }
+                    Format::TCF => {
+                        let config = match command.compression {
+                            StringCompression::None => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::None),
+                            StringCompression::Smaz => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::Smaz),
+                            StringCompression::Shoco => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::ShocoDefault),
+                            StringCompression::Generate => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::GenerateShocoModel(command.compression_bytes)),
+                        };
+                        teanga::write_tcf_with_config(&mut output, &rx_corpus, &config)
+                            .map_err(|e| format!("Failed to write TCF: {}", e)).unwrap();
+                    }
+                    Format::Guess => panic!("unreachable")
+                }
+            });
+            handle1.join().unwrap();
+            handle2.join().unwrap();
+        } else {
+            let mut corpus = teanga::SimpleCorpus::new();
+            let input = if self.input.ends_with(".gz") {
+                let reader = BufReader::new(flate2::read::GzDecoder::new(File::open(&self.input)
+                    .map_err(|e| format!("Failed to open input file: {}", e)).unwrap()));
+                Box::new(reader) as Box<dyn std::io::BufRead>
+            } else {
+                Box::new(BufReader::new(File::open(&self.input)
+                    .map_err(|e| format!("Failed to open input file: {}", e)).unwrap())) as Box<dyn std::io::BufRead>
+            };
+            let mut output = BufWriter::new(File::create(&self.output)
+                .map_err(|e| format!("Failed to create output file: {}", e)).unwrap());
+            let config = match self.compression {
+                StringCompression::None => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::None),
+                StringCompression::Smaz => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::Smaz),
+                StringCompression::Shoco => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::ShocoDefault),
+                StringCompression::Generate => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::GenerateShocoModel(self.compression_bytes)),
+            };
+
+
+            let (mut cache, _) = teanga::write_tcf_header(&mut output, corpus.get_meta())
+                .map_err(|e| format!("Failed to write TCF: {}", e)).unwrap();
+            let replay = std::cell::RefCell::new(Vec::new());
+            let do_replay = std::cell::RefCell::new(true);
+            let meta = corpus.get_meta().clone();
+            let mut iter : Box<dyn Iterator<Item=Result<Document, TeangaError>>> = Box::new(
+                input.lines().map(|line| {
+                    //let line = line.map_err(|e| format!("Failed to read line: {}", e)).unwrap();
+                    //let doc = teanga::serialization::read_jsonl_line(line, &mut corpus).map_err(|e| format!("Failed to parse JSON: {}", e)).unwrap();
+                    let line = line.expect("Failed to read line");
+                    let doc = teanga::serialization::read_jsonl_line(line, &mut corpus).expect("Failed to parse JSON");
+                    if *do_replay.borrow() {
+                        replay.borrow_mut().push(doc.clone());
+                    }
+                    Ok(doc)
+                }));
+            let compressor = teanga::write_tcf_config(&mut output, &mut iter, &config)
+                .map_err(|e| format!("Failed to write TCF: {}", e)).unwrap();
+            let replay = replay.clone();
+            for doc in replay.borrow().iter() {
+                teanga::write_tcf_doc(&mut output, doc.clone(), &mut cache, &meta, &compressor)
+                    .map_err(|e| format!("Failed to write TCF: {}", e)).unwrap();
+                }
+            *do_replay.borrow_mut() = false;
+            for doc in iter {
+                let doc = doc.map_err(|e| format!("Failed to read document: {}", e)).unwrap();
+                teanga::write_tcf_doc(&mut output, doc, &mut cache, &meta, &compressor)
+                    .map_err(|e| format!("Failed to write TCF: {}", e)).unwrap();
+                }
         }
+
         Ok(())
     }
 }
