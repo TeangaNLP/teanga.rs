@@ -195,3 +195,7 @@ teanga-cli/c4.yaml.gz
 teanga-cli/flamegraph.svg
 teanga-cli/perf.data
 teanga-cli/tmp.json
+brown.yaml
+europarl-v7_all_lang_pairs.teanga.json
+tmp.tcf
+tmp.yaml

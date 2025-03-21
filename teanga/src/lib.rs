@@ -45,7 +45,7 @@ pub use disk_corpus::{DiskCorpus, PathAsDB};
 pub use layer::{IntoLayer, Layer, LayerDesc, DataType, LayerType, TeangaData};
 pub use layer_builder::build_layer;
 pub use query::Query;
-pub use serialization::{read_json, read_yaml, write_json, write_yaml, read_yaml_meta, read_jsonl};
+pub use serialization::{read_json, read_yaml, write_json, write_yaml, read_yaml_with_config, read_json_with_config, read_jsonl, SerializationSettings};
 pub use tcf::{write_tcf, write_tcf_with_config, read_tcf, write_tcf_header, write_tcf_config, write_tcf_doc, doc_content_to_bytes, bytes_to_doc, Index, IndexResult, TCFReadError, TCFWriteError, TCFConfig, StringCompression, StringCompressionError, StringCompressionMethod, NoCompression, SmazCompression, ShocoCompression};
 pub use match_condition::{TextMatchCondition, DataMatchCondition};
 
@@ -254,7 +254,7 @@ impl SimpleCorpus {
 
     /// Read the metadata from a YAML file
     pub fn read_yaml_header<'de, R: std::io::Read>(&mut self, r: R) -> Result<(), TeangaYamlError> {
-        Ok(crate::serialization::read_yaml_meta(r, self)?)
+        Ok(crate::serialization::read_yaml_with_config(r, self, SerializationSettings::new().header_only())?)
     }
 
 }

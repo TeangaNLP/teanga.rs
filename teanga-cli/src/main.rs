@@ -7,10 +7,11 @@ use teanga::Corpus;
 use teanga::TCFConfig;
 use teanga::Document;
 use teanga::TeangaError;
-use teanga::read_yaml_meta;
+use teanga::read_yaml_with_config;
+use teanga::read_json_with_config;
 use teanga::read_json;
-use teanga::read_jsonl;
 use teanga::read_yaml;
+use teanga::read_jsonl;
 
 // for CBOR conversion
 use std::io::BufWriter;
@@ -120,7 +121,12 @@ struct ConvertCommand {
     /// The number of bytes to use for generate string compression (for TCF output only, only used if compression is set to generate)
     #[arg(long)]
     #[clap(default_value="1000000")]
-    compression_bytes: usize
+    compression_bytes: usize,
+
+    /// Ignore incorrect document IDs
+    #[arg(long)]
+    #[clap(default_value="false")]
+    ignore_id_errors: bool
 }
 
 impl LoadCommand {
@@ -128,9 +134,10 @@ impl LoadCommand {
         let mut corpus = DiskCorpus::new(&self.db)
             .map_err(|e| format!("Failed to open corpus: {}", e))?;
         if let Some(meta) = &self.meta {
-            read_yaml_meta(File::open(meta)
+            read_yaml_with_config(File::open(meta)
                 .map_err(|e| format!("Failed to open meta file: {}", e))?,
-                &mut corpus)
+                &mut corpus,
+                teanga::SerializationSettings::new().header_only())
                 .map_err(|e| format!("Failed to read meta file: {}", e))?;
         }
         let mut file = if self.file.ends_with(".gz") {
@@ -176,11 +183,17 @@ impl ConvertCommand {
             None => {}
         }
 
+        let settings = if self.ignore_id_errors {
+            teanga::SerializationSettings::new().ignore_id_errors()
+        } else {
+            teanga::SerializationSettings::new()
+        };
+
         let mut progressive = false;
 
         match self.input_format.guess(&self.input) {
             Format::JSON => {
-                teanga::serialization::read_json(&mut input, &mut corpus)
+                read_json_with_config(&mut input, &mut corpus, settings)
                     .map_err(|e| format!("Failed to read JSON: {}", e))?;
             }
             Format::JSONL => {
@@ -195,7 +208,7 @@ impl ConvertCommand {
                 }
             }
             Format::YAML => {
-                teanga::serialization::read_yaml(&mut input, &mut corpus)
+                teanga::serialization::read_yaml_with_config(&mut input, &mut corpus, settings)
                     .map_err(|e| format!("Failed to read YAML: {}", e))?;
             }
             Format::TCF => {
