@@ -35,7 +35,6 @@ impl <'de,'a, C: WriteableCorpus> Visitor<'de> for TeangaVisitor2<'a, C> {
             } else if !self.1 {
                 let doc = map.next_value::<HashMap<String, Layer>>()?;
                 let id = self.0.add_doc(doc).map_err(serde::de::Error::custom)?;
-                eprintln!("Reading {}", id);
                 if id[..min(id.len(), key.len())] != key[..min(id.len(), key.len())] {
                     return Err(serde::de::Error::custom(format!("Document fails hash check: {} != {}", id, key)))
                 }
@@ -53,10 +52,9 @@ fn corpus_serialize<C : Corpus, S>(c : &C, serializer: S) -> Result<S::Ok, S::Er
     where S: Serializer, C::Content : Serialize
 {
     let mut map = serializer.serialize_map(Some(3))?;
-    map.serialize_entry("_meta", &c.clone_meta())?;
+    map.serialize_entry("_meta", &c.get_meta())?;
     for res in c.iter_doc_ids() {
         let (id, doc) = res.map_err(serde::ser::Error::custom)?;
-        eprintln!("Writing {}", id);
         map.serialize_entry(&id, &doc)?;
     }
     map.end()
@@ -158,7 +156,6 @@ pub fn read_json_meta<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut
 /// * `meta_only` - Whether to read only the metadata
 pub fn read_yaml<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -> Result<(), SerializeError> {
     let char_iter = reader.bytes().filter_map(Result::ok).map(|b| b as char);
-    eprintln!("Reading YAML");
     let parser = yaml_rust::parser::Parser::new(char_iter);
     let mut reader = YamlStreamReader { parser };
     while let Some((key, value)) = reader.next_entry()? {

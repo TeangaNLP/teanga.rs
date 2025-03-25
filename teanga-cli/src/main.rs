@@ -215,14 +215,17 @@ impl ConvertCommand {
 
                 match command.output_format.guess(&command.output) {
                     Format::JSON => {
+                        let rx_corpus = rx_corpus.await_meta();
                         teanga::serialization::write_json(&mut output, &rx_corpus)
                             .map_err(|e| format!("Failed to write JSON: {}", e)).unwrap();
                     }
                     Format::JSONL => {
+                        let rx_corpus = rx_corpus.await_meta();
                         teanga::serialization::write_jsonl(&mut output, &rx_corpus)
                             .map_err(|e| format!("Failed to write JSONL: {}", e)).unwrap();
                     }
                     Format::YAML => {
+                        let rx_corpus = rx_corpus.await_meta();
                         teanga::serialization::write_yaml(&mut output, &rx_corpus)
                             .map_err(|e| format!("Failed to write YAML: {}", e)).unwrap();
                     }
@@ -233,6 +236,7 @@ impl ConvertCommand {
                             StringCompression::Shoco => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::ShocoDefault),
                             StringCompression::Generate => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::GenerateShocoModel(command.compression_bytes)),
                         };
+                        let rx_corpus = rx_corpus.await_meta();
                         teanga::write_tcf_with_config(&mut output, &rx_corpus, &config)
                             .map_err(|e| format!("Failed to write TCF: {}", e)).unwrap();
                     }

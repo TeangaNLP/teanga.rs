@@ -84,12 +84,12 @@ pub fn write_tcf<W : Write, C: Corpus>(
 /// * `config` - The configuration for the TCF
 pub fn write_tcf_with_config<W : Write, C: Corpus>(
     out : &mut W, corpus : &C, config : &TCFConfig) -> Result<(), TCFWriteError> {
-    write_tcf_header(out, &corpus.clone_meta())?;
+    write_tcf_header(out, &corpus.get_meta())?;
     let string_compression = write_tcf_config(out, &mut corpus.iter_docs(), config)?;
     let mut index = Index::new();
     for doc in corpus.iter_docs() {
         write_tcf_doc(out, doc?,
-                &mut index, corpus.get_meta(), &string_compression)?;
+                &mut index, &corpus.get_meta(), &string_compression)?;
     }
     Ok(())
 }
