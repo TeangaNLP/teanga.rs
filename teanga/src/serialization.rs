@@ -155,7 +155,7 @@ pub fn read_json_meta<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut
 /// * `meta_only` - Whether to read only the metadata
 pub fn read_yaml<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -> Result<(), SerializeError> {
     let char_iter = reader.bytes().filter_map(Result::ok).map(|b| b as char);
-    let parser = yaml_rust2::parser::Parser::new(char_iter);
+    let parser = yaml_rust::parser::Parser::new(char_iter);
     let mut reader = YamlStreamReader { parser };
     while let Some((key, value)) = reader.next_entry()? {
         if key == "_meta" {
@@ -171,8 +171,6 @@ pub fn read_yaml<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -
         }
     }
     Ok(())
-    //let deserializer = serde_yaml::Deserializer::from_reader(reader);
-    //Ok(deserializer.deserialize_any(TeangaVisitor2(corpus, false))?)
 }
 
 // Read only the metadata from a YAML file
@@ -181,9 +179,18 @@ pub fn read_yaml<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -
 //
 // * `reader` - The reader to read from
 // * `corpus` - The corpus to read into
-pub fn read_yaml_meta<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -> Result<(), serde_yaml::Error> {
-    let deserializer = serde_yaml::Deserializer::from_reader(reader);
-    deserializer.deserialize_any(TeangaVisitor2(corpus, true))
+pub fn read_yaml_meta<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -> Result<(), SerializeError> {
+    let char_iter = reader.bytes().filter_map(Result::ok).map(|b| b as char);
+    let parser = yaml_rust::parser::Parser::new(char_iter);
+    let mut reader = YamlStreamReader { parser };
+    while let Some((key, value)) = reader.next_entry()? {
+        if key == "_meta" {
+            corpus.set_meta(serde_json::from_value(value)?)?;
+        } else if key == "_order" {
+            corpus.set_order(serde_json::from_value(value)?)?;
+        }
+    }
+    Ok(())
 }
 
 /// Read a corpus from JSONL. That is a file with one JSON document per line. 
@@ -255,9 +262,9 @@ pub fn write_jsonl<W : Write, C : Corpus>(mut writer : W, corpus : &C) -> Result
     Ok(())
 }
 
-use yaml_rust2::parser::{Event, Parser, Tag};
-use yaml_rust2::scanner::TScalarStyle;
-use yaml_rust2::yaml::Yaml;
+use yaml_rust::parser::{Event, Parser};
+use yaml_rust::scanner::{TScalarStyle, TokenType};
+use yaml_rust::yaml::Yaml;
 
 struct YamlStreamReader<T : Iterator<Item=char>> {
     parser : Parser<T>
@@ -269,19 +276,19 @@ impl <T : Iterator<Item=char>> YamlStreamReader<T> {
             let (event, marker) = self.parser.peek()?;
             match event {
                 Event::StreamStart => {
-                    self.parser.next_token()?;
+                    self.parser.next()?;
                 },
                 Event::StreamEnd => return Ok(None),
                 Event::DocumentStart => {
-                    self.parser.next_token()?;
+                    self.parser.next()?;
                 },
                 Event::DocumentEnd => return Ok(None),
-                Event::MappingStart(_,_) => {
-                    self.parser.next_token()?;
+                Event::MappingStart(_) => {
+                    self.parser.next()?;
                     break;
                 },
                 Event::MappingEnd => {
-                    self.parser.next_token()?;
+                    self.parser.next()?;
                     return Ok(None);
                 },
                 Event::Scalar(_, _, _, _) => {
@@ -292,7 +299,7 @@ impl <T : Iterator<Item=char>> YamlStreamReader<T> {
                 }
             }
         }
-        let (event, marker) = self.parser.next_token()?;
+        let (event, marker) = self.parser.next()?;
         let key = match event {
             Event::Scalar(value, _, _, _) => {
                 value
@@ -305,16 +312,16 @@ impl <T : Iterator<Item=char>> YamlStreamReader<T> {
     }
 
     fn read_value(&mut self) -> Result<serde_json::Value, SerializeError> {
-        let (event, marker) = self.parser.next_token()?;
+        let (event, marker) = self.parser.next()?;
         match event {
             Event::Scalar(key, style, aid, tag) => {
                 let s = yaml_to_json(scalar_to_yaml(key, style, aid, tag));
                 Ok(s)
             },
-            Event::SequenceStart(_, _) => {
+            Event::SequenceStart(_) => {
                 self.read_seq()
             }
-            Event::MappingStart(_, _) => {
+            Event::MappingStart(_) => {
                 self.read_obj()
             }
             _ => {
@@ -329,7 +336,7 @@ impl <T : Iterator<Item=char>> YamlStreamReader<T> {
             let (event, _) = self.parser.peek()?;
             match event {
                 Event::SequenceEnd => {
-                    self.parser.next_token()?;
+                    self.parser.next()?;
                     break;
                 },
                 _ => {
@@ -343,7 +350,7 @@ impl <T : Iterator<Item=char>> YamlStreamReader<T> {
     fn read_obj(&mut self) -> Result<serde_json::Value, SerializeError> {
         let mut obj = serde_json::Map::new();
         loop {
-            let (event, marker) = self.parser.next_token()?;
+            let (event, marker) = self.parser.next()?;
             match event {
                 Event::MappingEnd => {
                     break;
@@ -385,15 +392,11 @@ fn yaml_to_json(yaml : Yaml) -> serde_json::Value {
     }
 }
 
-fn scalar_to_yaml(v : String, style : TScalarStyle, _aid : usize, tag : Option<Tag>) -> Yaml {
+fn scalar_to_yaml(v : String, style : TScalarStyle, _aid : usize, tag : Option<TokenType>) -> Yaml {
     if style != TScalarStyle::Plain {
         Yaml::String(v)
-    } else if let Some(Tag {
-        ref handle,
-        ref suffix,
-    }) = tag
-    {
-        if handle == "tag:yaml.org,2002:" {
+    } else if let Some(TokenType::Tag(ref handle, ref suffix)) = tag {
+        if handle == "!!" {
             match suffix.as_ref() {
                 "bool" => {
                     // "true" or "false"
@@ -457,10 +460,10 @@ pub enum SerializeError {
     Utf8(#[from] std::string::FromUtf8Error),
     /// An error in decoding YAML
     #[error("YAML error: {0}")]
-    Yaml2(#[from] yaml_rust2::ScanError),
+    Yaml2(#[from] yaml_rust::ScanError),
     /// A format error in the yaml
     #[error("YAML format error: {0}")]
-    YamlFormat(String, yaml_rust2::scanner::Marker),
+    YamlFormat(String, yaml_rust::scanner::Marker),
 }
 
 
@@ -631,21 +634,21 @@ aeW7:
 dkJv:
     text: hopeless for tmr :(
     _user: '{\"screen_name\": \"yuwraxkim\", \"time_zone\": \"Jakarta\", \"profile_background_image_url\":
-      \"http://pbs.twimg.com/profile_background_images/585476378365014016/j1mvQu3c.png\",
-      \"profile_background_image_url_https\": \"https://pbs.twimg.com/profile_background_images/585476378365014016/j1mvQu3c.png\",
-      \"default_profile_image\": false, \"url\": null, \"profile_text_color\": \"000000\", \"following\":
-      false, \"listed_count\": 3, \"entities\": {\"description\": {\"urls\": []}}, \"utc_offset\":
-      25200, \"profile_sidebar_border_color\": \"000000\", \"name\": \"yuwra\", \"favourites_count\":
-      196, \"followers_count\": 1281, \"location\": \"wearegsd;favor;pucukfams;barbx\", \"protected\":
-      false, \"notifications\": false, \"profile_image_url_https\": \"https://pbs.twimg.com/profile_images/622631732399898624/kmYsX_k1_normal.jpg\",
-      \"profile_use_background_image\": true, \"profile_image_url\": \"http://pbs.twimg.com/profile_images/622631732399898624/kmYsX_k1_normal.jpg\",
-      \"lang\": \"id\", \"statuses_count\": 19710, \"friends_count\": 1264, \"profile_banner_url\":
-      \"https://pbs.twimg.com/profile_banners/3078803375/1433287528\", \"geo_enabled\": true,
-      \"is_translator\": false, \"contributors_enabled\": false, \"profile_sidebar_fill_color\":
-      \"000000\", \"created_at\": \"Sun Mar 08 05:43:40 +0000 2015\", \"verified\": false, \"profile_link_color\":
-      \"000000\", \"is_translation_enabled\": false, \"has_extended_profile\": false, \"id_str\":
-      \"3078803375\", \"follow_request_sent\": false, \"profile_background_color\": \"000000\",
-      \"default_profile\": false, \"profile_background_tile\": true, \"id\": 3078803375, }'
+  \"http://pbs.twimg.com/profile_background_images/585476378365014016/j1mvQu3c.png\",
+  \"profile_background_image_url_https\": \"https://pbs.twimg.com/profile_background_images/585476378365014016/j1mvQu3c.png\",
+  \"default_profile_image\": false, \"url\": null, \"profile_text_color\": \"000000\", \"following\":
+  false, \"listed_count\": 3, \"entities\": {\"description\": {\"urls\": []}}, \"utc_offset\":
+  25200, \"profile_sidebar_border_color\": \"000000\", \"name\": \"yuwra\", \"favourites_count\":
+  196, \"followers_count\": 1281, \"location\": \"wearegsd;favor;pucukfams;barbx\", \"protected\":
+  false, \"notifications\": false, \"profile_image_url_https\": \"https://pbs.twimg.com/profile_images/622631732399898624/kmYsX_k1_normal.jpg\",
+  \"profile_use_background_image\": true, \"profile_image_url\": \"http://pbs.twimg.com/profile_images/622631732399898624/kmYsX_k1_normal.jpg\",
+  \"lang\": \"id\", \"statuses_count\": 19710, \"friends_count\": 1264, \"profile_banner_url\":
+  \"https://pbs.twimg.com/profile_banners/3078803375/1433287528\", \"geo_enabled\": true,
+  \"is_translator\": false, \"contributors_enabled\": false, \"profile_sidebar_fill_color\":
+  \"000000\", \"created_at\": \"Sun Mar 08 05:43:40 +0000 2015\", \"verified\": false, \"profile_link_color\":
+  \"000000\", \"is_translation_enabled\": false, \"has_extended_profile\": false, \"id_str\":
+  \"3078803375\", \"follow_request_sent\": false, \"profile_background_color\": \"000000\",
+  \"default_profile\": false, \"profile_background_tile\": true, \"id\": 3078803375, }'
     _retweet_count: '0'
     _favorited: 'false'
     _entities: '{\"hashtags\": [], \"user_mentions\": [], \"urls\": [], \"symbols\": []}'
