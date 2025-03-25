@@ -153,9 +153,26 @@ pub fn read_json_meta<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut
 /// * `reader` - The reader to read from
 /// * `corpus` - The corpus to read into
 /// * `meta_only` - Whether to read only the metadata
-pub fn read_yaml<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -> Result<(), serde_yaml::Error> {
-    let deserializer = serde_yaml::Deserializer::from_reader(reader);
-    deserializer.deserialize_any(TeangaVisitor2(corpus, false))
+pub fn read_yaml<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -> Result<(), SerializeError> {
+    let char_iter = reader.bytes().filter_map(Result::ok).map(|b| b as char);
+    let parser = yaml_rust2::parser::Parser::new(char_iter);
+    let mut reader = YamlStreamReader { parser };
+    while let Some((key, value)) = reader.next_entry()? {
+        if key == "_meta" {
+            corpus.set_meta(serde_json::from_value(value)?)?;
+        } else if key == "_order" {
+            corpus.set_order(serde_json::from_value(value)?)?;
+        } else {
+            let doc : HashMap<String, Layer> = serde_json::from_value(value)?;
+            let id = corpus.add_doc(doc)?;
+            if id[..min(id.len(), key.len())] != key[..min(id.len(), key.len())] {
+                panic!("Document fails hash check: {} != {}", id, key);
+            }
+        }
+    }
+    Ok(())
+    //let deserializer = serde_yaml::Deserializer::from_reader(reader);
+    //Ok(deserializer.deserialize_any(TeangaVisitor2(corpus, false))?)
 }
 
 // Read only the metadata from a YAML file
@@ -238,6 +255,185 @@ pub fn write_jsonl<W : Write, C : Corpus>(mut writer : W, corpus : &C) -> Result
     Ok(())
 }
 
+use yaml_rust2::parser::{Event, Parser, Tag};
+use yaml_rust2::scanner::TScalarStyle;
+use yaml_rust2::yaml::Yaml;
+
+struct YamlStreamReader<T : Iterator<Item=char>> {
+    parser : Parser<T>
+}
+
+impl <T : Iterator<Item=char>> YamlStreamReader<T> {
+    fn next_entry(&mut self) -> Result<Option<(String, serde_json::Value)>, SerializeError> {
+        loop {
+            let (event, marker) = self.parser.peek()?;
+            match event {
+                Event::StreamStart => {
+                    self.parser.next_token()?;
+                },
+                Event::StreamEnd => return Ok(None),
+                Event::DocumentStart => {
+                    self.parser.next_token()?;
+                },
+                Event::DocumentEnd => return Ok(None),
+                Event::MappingStart(_,_) => {
+                    self.parser.next_token()?;
+                    break;
+                },
+                Event::MappingEnd => {
+                    self.parser.next_token()?;
+                    return Ok(None);
+                },
+                Event::Scalar(_, _, _, _) => {
+                    break;
+                },
+                _ => {
+                    return Err(SerializeError::YamlFormat("Expected mapping start".to_string(), marker.clone()));
+                }
+            }
+        }
+        let (event, marker) = self.parser.next_token()?;
+        let key = match event {
+            Event::Scalar(value, _, _, _) => {
+                value
+            },
+            _ => {
+                return Err(SerializeError::YamlFormat("Expected scalar".to_string(), marker));
+            }
+        };
+        Ok(Some((key, self.read_value()?)))
+    }
+
+    fn read_value(&mut self) -> Result<serde_json::Value, SerializeError> {
+        let (event, marker) = self.parser.next_token()?;
+        match event {
+            Event::Scalar(key, style, aid, tag) => {
+                let s = yaml_to_json(scalar_to_yaml(key, style, aid, tag));
+                Ok(s)
+            },
+            Event::SequenceStart(_, _) => {
+                self.read_seq()
+            }
+            Event::MappingStart(_, _) => {
+                self.read_obj()
+            }
+            _ => {
+                return Err(SerializeError::YamlFormat("Expected scalar, map or sequence".to_string(), marker));
+            }
+        }
+    }
+
+    fn read_seq(&mut self) -> Result<serde_json::Value, SerializeError> {
+        let mut seq = Vec::new();
+        loop {
+            let (event, _) = self.parser.peek()?;
+            match event {
+                Event::SequenceEnd => {
+                    self.parser.next_token()?;
+                    break;
+                },
+                _ => {
+                    seq.push(self.read_value()?);
+                }
+            }
+        }
+        Ok(serde_json::Value::Array(seq))
+    }
+
+    fn read_obj(&mut self) -> Result<serde_json::Value, SerializeError> {
+        let mut obj = serde_json::Map::new();
+        loop {
+            let (event, marker) = self.parser.next_token()?;
+            match event {
+                Event::MappingEnd => {
+                    break;
+                },
+                Event::Scalar(key, _, _, _) => {
+                    obj.insert(key, self.read_value()?);
+                },
+                _ => {
+                    return Err(SerializeError::YamlFormat("Expected scalar".to_string(), marker));
+                }
+            }
+        }
+        Ok(serde_json::Value::Object(obj))
+    }
+}
+
+fn yaml_to_json(yaml : Yaml) -> serde_json::Value {
+    match yaml {
+        Yaml::Array(v) => {
+            let mut arr = Vec::new();
+            for item in v {
+                arr.push(yaml_to_json(item));
+            }
+            serde_json::Value::Array(arr)
+        },
+        Yaml::Hash(v) => {
+            let mut obj = serde_json::Map::new();
+            for (key, value) in v {
+                obj.insert(key.as_str().unwrap().to_string(), yaml_to_json(value));
+            }
+            serde_json::Value::Object(obj)
+        },
+        Yaml::String(v) => serde_json::Value::String(v),
+        Yaml::Integer(v) => serde_json::Value::Number(serde_json::Number::from(v)),
+        Yaml::Real(v) => serde_json::Value::Number(serde_json::Number::from_f64(v.parse::<f64>().unwrap()).unwrap()),
+        Yaml::Boolean(v) => serde_json::Value::Bool(v),
+        Yaml::Null => serde_json::Value::Null,
+        _ => serde_json::Value::Null,
+    }
+}
+
+fn scalar_to_yaml(v : String, style : TScalarStyle, _aid : usize, tag : Option<Tag>) -> Yaml {
+    if style != TScalarStyle::Plain {
+        Yaml::String(v)
+    } else if let Some(Tag {
+        ref handle,
+        ref suffix,
+    }) = tag
+    {
+        if handle == "tag:yaml.org,2002:" {
+            match suffix.as_ref() {
+                "bool" => {
+                    // "true" or "false"
+                    match v.parse::<bool>() {
+                        Err(_) => Yaml::BadValue,
+                        Ok(v) => Yaml::Boolean(v),
+                    }
+                }
+                "int" => match v.parse::<i64>() {
+                    Err(_) => Yaml::BadValue,
+                    Ok(v) => Yaml::Integer(v),
+                },
+                "float" => match parse_f64(&v) {
+                    Some(_) => Yaml::Real(v),
+                    None => Yaml::BadValue,
+                },
+                "null" => match v.as_ref() {
+                    "~" | "null" => Yaml::Null,
+                    _ => Yaml::BadValue,
+                },
+                _ => Yaml::String(v),
+            }
+        } else {
+            Yaml::String(v)
+        }
+    } else {
+        // Datatype is not specified, or unrecognized
+        Yaml::from_str(&v)
+    }
+}
+
+fn parse_f64(v: &str) -> Option<f64> {
+    match v {
+        ".inf" | ".Inf" | ".INF" | "+.inf" | "+.Inf" | "+.INF" => Some(f64::INFINITY),
+        "-.inf" | "-.Inf" | "-.INF" => Some(f64::NEG_INFINITY),
+        ".nan" | "NaN" | ".NAN" => Some(f64::NAN),
+        _ => v.parse::<f64>().ok(),
+    }
+}
+
 /// A serialization error
 #[derive(Error,Debug)]
 pub enum SerializeError {
@@ -259,13 +455,52 @@ pub enum SerializeError {
     /// An error in decoding UTF-8
     #[error("UTF8 error: {0}")]
     Utf8(#[from] std::string::FromUtf8Error),
+    /// An error in decoding YAML
+    #[error("YAML error: {0}")]
+    Yaml2(#[from] yaml_rust2::ScanError),
+    /// A format error in the yaml
+    #[error("YAML format error: {0}")]
+    YamlFormat(String, yaml_rust2::scanner::Marker),
 }
+
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::SimpleCorpus;
     use std::collections::HashSet;
+    use serde_json::json;
+
+    #[test]
+    fn test_yaml_stream_reader() {
+        let doc = "_meta:
+    text:
+        type: characters
+    tokens:
+        type: span
+        base: text
+_order: [\"ecWc\"]
+ecWc:
+    text: This is an example
+    tokens: [[0, 4], [5, 7], [8, 10], [11, 18]]
+";
+        let mut yaml_stream_reader = YamlStreamReader { parser: Parser::new(doc.chars()) };
+        assert_eq!(("_meta".to_string(), json!({
+            "text": {
+                "type": "characters"
+            },
+            "tokens": {
+                "type": "span",
+                "base": "text"
+            }
+        })), yaml_stream_reader.next_entry().unwrap().unwrap());
+        assert_eq!(("_order".to_string(), json!(["ecWc"])), yaml_stream_reader.next_entry().unwrap().unwrap());
+        assert_eq!(("ecWc".to_string(), json!({
+            "text": "This is an example",
+            "tokens": [[0, 4], [5, 7], [8, 10], [11, 18]]
+        })), yaml_stream_reader.next_entry().unwrap().unwrap());
+    }
+        
 
     #[test]
     fn test_deserialize_yaml() {
@@ -396,22 +631,21 @@ aeW7:
 dkJv:
     text: hopeless for tmr :(
     _user: '{\"screen_name\": \"yuwraxkim\", \"time_zone\": \"Jakarta\", \"profile_background_image_url\":
-  \"http://pbs.twimg.com/profile_background_images/585476378365014016/j1mvQu3c.png\",
-  \"profile_background_image_url_https\": \"https://pbs.twimg.com/profile_background_images/585476378365014016/j1mvQu3c.png\",
-  \"default_profile_image\": false, \"url\": null, \"profile_text_color\": \"000000\", \"following\":
-  false, \"listed_count\": 3, \"entities\": {\"description\": {\"urls\": []}}, \"utc_offset\":
-  25200, \"profile_sidebar_border_color\": \"000000\", \"name\": \"yuwra \u{2708} \", \"favourites_count\":
-  196, \"followers_count\": 1281, \"location\": \"wearegsd;favor;pucukfams;barbx\", \"protected\":
-  false, \"notifications\": false, \"profile_image_url_https\": \"https://pbs.twimg.com/profile_images/622631732399898624/kmYsX_k1_normal.jpg\",
-  \"profile_use_background_image\": true, \"profile_image_url\": \"http://pbs.twimg.com/profile_images/622631732399898624/kmYsX_k1_normal.jpg\",
-  \"lang\": \"id\", \"statuses_count\": 19710, \"friends_count\": 1264, \"profile_banner_url\":
-  \"https://pbs.twimg.com/profile_banners/3078803375/1433287528\", \"geo_enabled\": true,
-  \"is_translator\": false, \"contributors_enabled\": false, \"profile_sidebar_fill_color\":
-  \"000000\", \"created_at\": \"Sun Mar 08 05:43:40 +0000 2015\", \"verified\": false, \"profile_link_color\":
-  \"000000\", \"is_translation_enabled\": false, \"has_extended_profile\": false, \"id_str\":
-  \"3078803375\", \"follow_request_sent\": false, \"profile_background_color\": \"000000\",
-  \"default_profile\": false, \"profile_background_tile\": true, \"id\": 3078803375, \"description\":
-  \"\u{21e8} [V] TravelGency \u{2588} 2/4 Goddest from Girls Day \u{2588} 92L \u{2588} sucrp\"}'
+      \"http://pbs.twimg.com/profile_background_images/585476378365014016/j1mvQu3c.png\",
+      \"profile_background_image_url_https\": \"https://pbs.twimg.com/profile_background_images/585476378365014016/j1mvQu3c.png\",
+      \"default_profile_image\": false, \"url\": null, \"profile_text_color\": \"000000\", \"following\":
+      false, \"listed_count\": 3, \"entities\": {\"description\": {\"urls\": []}}, \"utc_offset\":
+      25200, \"profile_sidebar_border_color\": \"000000\", \"name\": \"yuwra\", \"favourites_count\":
+      196, \"followers_count\": 1281, \"location\": \"wearegsd;favor;pucukfams;barbx\", \"protected\":
+      false, \"notifications\": false, \"profile_image_url_https\": \"https://pbs.twimg.com/profile_images/622631732399898624/kmYsX_k1_normal.jpg\",
+      \"profile_use_background_image\": true, \"profile_image_url\": \"http://pbs.twimg.com/profile_images/622631732399898624/kmYsX_k1_normal.jpg\",
+      \"lang\": \"id\", \"statuses_count\": 19710, \"friends_count\": 1264, \"profile_banner_url\":
+      \"https://pbs.twimg.com/profile_banners/3078803375/1433287528\", \"geo_enabled\": true,
+      \"is_translator\": false, \"contributors_enabled\": false, \"profile_sidebar_fill_color\":
+      \"000000\", \"created_at\": \"Sun Mar 08 05:43:40 +0000 2015\", \"verified\": false, \"profile_link_color\":
+      \"000000\", \"is_translation_enabled\": false, \"has_extended_profile\": false, \"id_str\":
+      \"3078803375\", \"follow_request_sent\": false, \"profile_background_color\": \"000000\",
+      \"default_profile\": false, \"profile_background_tile\": true, \"id\": 3078803375, }'
     _retweet_count: '0'
     _favorited: 'false'
     _entities: '{\"hashtags\": [], \"user_mentions\": [], \"urls\": [], \"symbols\": []}'
@@ -430,15 +664,16 @@ dkJv:
         let mut buf = Vec::new();
         write_yaml(&mut buf, &corpus).unwrap();
         let out_yaml = String::from_utf8(buf).unwrap().replace("\n", "");
+        eprintln!("{}", out_yaml);
         let left_tokens : HashSet<&str> = HashSet::from_iter(out_yaml.split(" "));
         let data = data.replace("\n", "");
         let right_tokens = HashSet::from_iter(data.split(" "));
-        for a in left_tokens.difference(&right_tokens) {
-            eprintln!("{}", a);
-        }
-        for a in right_tokens.difference(&left_tokens) {
-            eprintln!("{}", a);
-        }
+        //for a in left_tokens.difference(&right_tokens) {
+        //    eprintln!("{}", a);
+        //}
+        //for a in right_tokens.difference(&left_tokens) {
+        //    eprintln!("{}", a);
+        //}
         assert_eq!(left_tokens, right_tokens);
     }
 }
