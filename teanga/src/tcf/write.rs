@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use ciborium::into_writer;
 use std::io::Write;
 use thiserror::Error;
-use crate::{TeangaResult, TeangaError, DocumentContent, IntoLayer, Corpus};
+use crate::{TeangaResult, TeangaError, DocumentContent, IntoLayer, ReadableCorpus};
 
 use crate::tcf::TCF_VERSION;
 use crate::tcf::TCFConfig;
@@ -70,7 +70,7 @@ pub enum TCFWriteError {
 ///
 /// * `out` - The output stream
 /// * `corpus` - The corpus to write
-pub fn write_tcf<W : Write, C: Corpus>(
+pub fn write_tcf<W : Write, C: ReadableCorpus>(
     out : &mut W, corpus : &C) -> Result<(), TCFWriteError> {
     write_tcf_with_config(out, corpus, &TCFConfig::default())
 }
@@ -82,12 +82,42 @@ pub fn write_tcf<W : Write, C: Corpus>(
 /// * `out` - The output stream
 /// * `corpus` - The corpus to write
 /// * `config` - The configuration for the TCF
-pub fn write_tcf_with_config<W : Write, C: Corpus>(
+pub fn write_tcf_with_config<W : Write, C: ReadableCorpus>(
     out : &mut W, corpus : &C, config : &TCFConfig) -> Result<(), TCFWriteError> {
     write_tcf_header(out, &corpus.get_meta())?;
-    let string_compression = write_tcf_config(out, &mut corpus.iter_docs(), config)?;
+
+    // The purpose of this is to allow the compression method to read ahead
+    // without consuming the iterator. We cache all the documents in memory
+    // and then replay them to write documents.
+    let replay = std::cell::RefCell::new(Vec::new());
+    let do_replay = std::cell::RefCell::new(true);
+    let mut iter : Box<dyn Iterator<Item=TeangaResult<Document>>> = Box::new(
+        corpus.iter_docs().map(|doc| {
+            match doc {
+                Ok(doc) => {
+                    if *do_replay.borrow() {
+                        replay.borrow_mut().push(doc.clone());
+                    }
+                    Ok(doc)
+                },
+                Err(err) => {
+                    Err(err)
+                }
+            }
+        }));
+    let string_compression = write_tcf_config(out, &mut iter, config)?;
     let mut index = Index::new();
-    for doc in corpus.iter_docs() {
+
+    // Now we replay the iterator
+    let replay = replay.take();
+    for doc in replay {
+        write_tcf_doc(out, doc,
+                &mut index, &corpus.get_meta(), &string_compression)?;
+    }
+
+    // And save the rest of the documents
+    *do_replay.borrow_mut() = false;
+    for doc in iter {
         write_tcf_doc(out, doc?,
                 &mut index, &corpus.get_meta(), &string_compression)?;
     }

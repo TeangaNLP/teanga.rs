@@ -15,8 +15,6 @@ use crate::tcf::{TCFResult, TCFError};
 use crate::tcf::index::Index;
 use crate::tcf::layer::{TCFLayer, TCF_EMPTY_LAYER};
 
-
-
 fn bytes_to_layer<S : StringCompression>(bytes : &[u8], idx : &mut Index, 
     layer_desc : &LayerDesc, s : &S) -> TCFResult<(Layer, usize)> {
     let (tcf, len) = TCFLayer::from_bytes(bytes, 0, layer_desc, s)?;
@@ -198,6 +196,7 @@ mod tests {
     use super::*;
     use crate::{SimpleCorpus, build_layer, LayerType, DataType, Corpus, IntoLayer};
     use crate::tcf::write::write_tcf;
+    use crate::ReadableCorpus;
 
     #[test]
     fn test_read_doc() {

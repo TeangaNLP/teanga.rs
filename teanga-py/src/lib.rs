@@ -2,7 +2,7 @@
 // Author: John P. McCrae
 // License: Apache 2.0
 use pyo3::prelude::*;
-use ::teanga::{DiskCorpus, PathAsDB, LayerDesc, LayerType, DataType, Value, Layer, Corpus};
+use ::teanga::{DiskCorpus, PathAsDB, LayerDesc, LayerType, DataType, Value, Layer, Corpus, ReadableCorpus};
 use std::collections::HashMap;
 
 mod tcf_py;

@@ -281,6 +281,7 @@ mod tests {
     use super::*;
     use crate::SimpleCorpus;
     use crate::layer::{LayerType, DataType};
+    use crate::ReadableCorpus;
 
     #[test]
     fn test_corpus_layers() {

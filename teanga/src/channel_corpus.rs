@@ -1,7 +1,6 @@
 use std::sync::mpsc::{Sender, Receiver, channel};
 use crate::document::Document;
-use crate::layer::Layer;
-use crate::{Corpus, LayerDesc, LayerType, DataType, Value, TeangaResult, IntoLayer, DocumentContent, teanga_id, WriteableCorpus, TeangaYamlError};
+use crate::{WriteableCorpus, ReadableCorpus, LayerDesc, TeangaResult, IntoLayer, DocumentContent, teanga_id, TeangaYamlError};
 use std::collections::HashMap;
 
 
@@ -51,17 +50,7 @@ impl ChannelCorpusSender {
     }
 }
 
-impl Corpus for ChannelCorpusSender {
-    type LayerStorage = Layer;
-    type Content = Document;
-
-    fn add_layer_meta(&mut self, _name: String, _layer_type: LayerType, 
-        _base: Option<String>, _data: Option<DataType>, _link_types: Option<Vec<String>>, 
-        _target: Option<String>, _default: Option<Layer>,
-        _meta : HashMap<String, Value>) -> TeangaResult<()> {
-        panic!("Not possible for channel corpus");
-    }
-
+impl WriteableCorpus for ChannelCorpusSender {
     fn add_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, content : DC) -> TeangaResult<String> {
         let doc = Document::new(content, &self.meta)?;
         let id = teanga_id(&self.order, &doc);
@@ -70,32 +59,6 @@ impl Corpus for ChannelCorpusSender {
         Ok(id)
     }
 
-    fn update_doc<D : IntoLayer, DC: DocumentContent<D>>(&mut self, _id : &str, _content : DC) -> TeangaResult<String> {
-        panic!("Not possible for channel corpus");
-    }
-
-    fn remove_doc(&mut self, _id : &str) -> TeangaResult<()> {
-        panic!("Not possible for channel corpus");
-    }
-
-    fn get_doc_by_id(&self, _id : &str) -> TeangaResult<Document> {
-        panic!("Not possible for channel corpus");
-    }
-
-    fn get_docs(&self) -> Vec<String> {
-        panic!("Not possible for channel corpus");
-    }
-
-    fn get_meta(&self) -> &HashMap<String, LayerDesc> {
-        &self.meta
-    }
-
-    fn get_order(&self) -> &Vec<String> {
-        &self.order
-    }
-}
-
-impl WriteableCorpus for ChannelCorpusSender {
     fn set_meta(&mut self, meta : HashMap<String, LayerDesc>) -> TeangaResult<()> {
         self.meta = meta;
         self.tx2.send(self.meta.clone()).unwrap();
@@ -110,45 +73,10 @@ impl WriteableCorpus for ChannelCorpusSender {
 
 
 
-impl Corpus for ChannelCorpusReceiver {
-    type LayerStorage = Layer;
-    type Content = Document;
-
-    fn add_layer_meta(&mut self, _name: String, _layer_type: LayerType, 
-        _base: Option<String>, _data: Option<DataType>, _link_types: Option<Vec<String>>, 
-        _target: Option<String>, _default: Option<Layer>,
-        _meta : HashMap<String, Value>) -> TeangaResult<()> {
-        panic!("Not possible for channel corpus");
-    }
-
-    fn add_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, _content : DC) -> TeangaResult<String> {
-        panic!("Not possible for channel corpus");
-    }
-
-    fn update_doc<D : IntoLayer, DC: DocumentContent<D>>(&mut self, _id : &str, _content : DC) -> TeangaResult<String> {
-        panic!("Not possible for channel corpus");
-    }
-
-    fn remove_doc(&mut self, _id : &str) -> TeangaResult<()> {
-        panic!("Not possible for channel corpus");
-    }
-
-    fn get_doc_by_id(&self, _id : &str) -> TeangaResult<Document> {
-        panic!("Not possible for channel corpus");
-    }
-
-    fn get_docs(&self) -> Vec<String> {
-        panic!("Not possible for channel corpus");
-    }
-
+impl ReadableCorpus for ChannelCorpusReceiver {
     fn get_meta(&self) -> &HashMap<String, LayerDesc> {
         &self.meta
     }
-
-    fn get_order(&self) -> &Vec<String> {
-        panic!("Not possible for channel corpus");
-    }
-
 
     fn iter_docs<'a>(&'a self) -> Box<dyn Iterator<Item=TeangaResult<Document>> + 'a> {
         Box::new(ChannelCorpusIterator { rx: &self.rx }.map(|x| x.map(|(_, doc)| doc)))
@@ -180,6 +108,7 @@ impl Iterator for ChannelCorpusIterator<'_> {
 mod test {
     use super::*;
     use std::thread;
+    use crate::LayerType;
 
     #[test]
     fn test_channel_corpus() {
@@ -187,12 +116,12 @@ mod test {
         let mut meta = HashMap::new();
         meta.insert("text".to_string(), LayerDesc::new("text", LayerType::characters, None, None, None, None, None, HashMap::new()).unwrap());
         tx.set_meta(meta).unwrap();
-        tx.build_doc().layer("text", "bar").unwrap().add().unwrap();
+        tx.add_doc(vec![("text".to_string(), "bar")]).unwrap();
         tx.close();
         let rx = rx.await_meta();
         for res in rx.iter_doc_ids() {
             let (_id, doc) = res.unwrap();
-            assert_eq!(doc.text("text", tx.get_meta()).unwrap(), vec!["bar"]);
+            assert_eq!(doc.text("text", rx.get_meta()).unwrap(), vec!["bar"]);
         }
     }
     
@@ -200,19 +129,18 @@ mod test {
     #[test]
     fn test_channel_corpus_multithreaded() {
         let (mut tx, rx) = channel_corpus();
-        let meta = tx.get_meta().clone();
         thread::spawn(move || {
             let mut meta = HashMap::new();
             meta.insert("text".to_string(), LayerDesc::new("text", LayerType::characters, None, None, None, None, None, HashMap::new()).unwrap());
             tx.set_meta(meta).unwrap();
-            tx.build_doc().layer("text", "bar").unwrap().add().unwrap();
+            tx.add_doc(vec![("text".to_string(), "bar")]).unwrap();
             tx.close();
         });
         thread::spawn(move || {
             let rx = rx.await_meta();
             for res in rx.iter_doc_ids() {
                 let (_id, doc) = res.unwrap();
-                assert_eq!(doc.text("text", &meta).unwrap(), vec!["bar"]);
+                assert_eq!(doc.text("text", &rx.get_meta()).unwrap(), vec!["bar"]);
             }
         });
     }

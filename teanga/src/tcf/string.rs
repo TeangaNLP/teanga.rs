@@ -304,6 +304,7 @@ mod tests {
     use crate::tcf::read::read_tcf;
     use crate::tcf::TCFConfig;
     use crate::tcf::StringCompressionMethod;
+    use crate::WriteableCorpus;
 
     #[test]
     fn test_shoco_serialize() {

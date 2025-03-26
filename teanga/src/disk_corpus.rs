@@ -199,15 +199,6 @@ impl <DB : DBImpl> Corpus for DiskCorpus<DB> {
         Ok(())
     }
 
-    fn add_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, content : DC) -> TeangaResult<String> {
-        let doc = Document::new(content, &self.meta)?;
-        let id = teanga_id(&self.order, &doc);
-        self.order.push(id.clone());
-        self.insert(id.clone(), doc)
-            .map_err(|e| TeangaError::ModelError(e.to_string()))?;
-        Ok(id)
-    }
-
     fn update_doc<D : IntoLayer, DC: DocumentContent<D>>(&mut self, id : &str, content : DC) -> TeangaResult<String> {
         let doc = match self.get_doc_by_id(id) {
             Ok(mut doc) => {
@@ -258,10 +249,6 @@ impl <DB : DBImpl> Corpus for DiskCorpus<DB> {
         self.order.clone()
     }
 
-    fn get_meta(&self) -> &HashMap<String, LayerDesc> {
-        &self.meta
-    }
-
     /// Get the order of the documents in the corpus
     ///
     /// # Returns
@@ -283,6 +270,32 @@ impl <DB : DBImpl> WriteableCorpus for DiskCorpus<DB> {
         self.order = order;
         Ok(())
     }
+
+    fn add_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, content : DC) -> TeangaResult<String> {
+        let doc = Document::new(content, &self.meta)?;
+        let id = teanga_id(&self.order, &doc);
+        self.order.push(id.clone());
+        self.insert(id.clone(), doc)
+            .map_err(|e| TeangaError::ModelError(e.to_string()))?;
+        Ok(id)
+    }
+}
+
+impl <DB : DBImpl> ReadableCorpus for DiskCorpus<DB> {
+
+    fn get_meta(&self) -> &HashMap<String, LayerDesc> {
+        &self.meta
+    }
+    /// Iterate over all documents in the corpus
+    fn iter_docs<'a>(&'a self) -> Box<dyn Iterator<Item=TeangaResult<Document>> + 'a> {
+        Box::new(self.get_docs().into_iter().map(move |x| self.get_doc_by_id(&x)))
+    }
+    /// Iterate over all documents in the corpus with their IDs
+    fn iter_doc_ids<'a>(&'a self) -> Box<dyn Iterator<Item=TeangaResult<(String, Document)>> + 'a> {
+        Box::new(self.get_docs().into_iter().map(move |x| self.get_doc_by_id(&x).map(|d| (x, d))))
+    }
+
+
 }
 
 impl <DB : DBImpl> Drop for DiskCorpus<DB> {

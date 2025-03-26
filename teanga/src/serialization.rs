@@ -1,8 +1,7 @@
 //! Serialization support for Teanga
-use crate::{Corpus, WriteableCorpus, LayerDesc, Layer, TeangaJsonError, Document};
+use crate::{WriteableCorpus, ReadableCorpus, LayerDesc, Layer, TeangaJsonError, Document};
 use itertools::Itertools;
 use serde::Deserializer;
-use serde::Serialize;
 use serde::de::Visitor;
 use serde::ser::{Serializer, SerializeMap};
 use std::cmp::min;
@@ -48,8 +47,8 @@ impl <'de,'a, C: WriteableCorpus> Visitor<'de> for TeangaVisitor2<'a, C> {
     }
 }
 
-fn corpus_serialize<C : Corpus, S>(c : &C, serializer: S) -> Result<S::Ok, S::Error>
-    where S: Serializer, C::Content : Serialize
+fn corpus_serialize<C : ReadableCorpus, S>(c : &C, serializer: S) -> Result<S::Ok, S::Error>
+    where S: Serializer
 {
     let mut map = serializer.serialize_map(Some(3))?;
     map.serialize_entry("_meta", &c.get_meta())?;
@@ -70,7 +69,7 @@ fn corpus_serialize<C : Corpus, S>(c : &C, serializer: S) -> Result<S::Ok, S::Er
 /// # Returns
 ///
 /// A result indicating success or failure
-pub fn pretty_yaml_serialize<W : Write, C: Corpus>(corpus: &C, mut writer: W) -> Result<(), SerializeError> {
+pub fn pretty_yaml_serialize<W : Write, C: ReadableCorpus>(corpus: &C, mut writer: W) -> Result<(), SerializeError> {
     writer.write_all(b"_meta:\n")?;
     for name in corpus.get_meta().keys().sorted() {
         let meta = &corpus.get_meta()[name];
@@ -216,10 +215,9 @@ pub fn read_jsonl<'de, R: BufRead, C : WriteableCorpus>(reader: R, corpus : &mut
 ///
 /// * `line` - The line to read
 /// * `corpus` - The corpus to read into
-pub fn read_jsonl_line<'de, C : Corpus>(line: String,
-    corpus : &mut C) -> Result<Document, TeangaJsonError> {
+pub fn read_jsonl_line<'de>(line: String, meta : &HashMap<String, LayerDesc>) -> Result<Document, TeangaJsonError> {
         let doc : HashMap<String, Layer> = serde_json::from_str(&line)?;
-        Ok(Document::new(doc, corpus.get_meta())?)
+        Ok(Document::new(doc, meta)?)
 }
 
 /// Write a corpus as JSON
@@ -228,8 +226,7 @@ pub fn read_jsonl_line<'de, C : Corpus>(line: String,
 ///
 /// * `writer` - The writer to write to
 /// * `corpus` - The corpus to write
-pub fn write_json<W : Write, C : Corpus>(mut writer : W, corpus : &C) -> Result<(), serde_json::Error> 
-    where C::Content : Serialize {
+pub fn write_json<W : Write, C : ReadableCorpus>(mut writer : W, corpus : &C) -> Result<(), serde_json::Error>  {
     let mut ser = serde_json::Serializer::new(&mut writer);
     corpus_serialize(corpus, &mut ser)
 }
@@ -240,8 +237,7 @@ pub fn write_json<W : Write, C : Corpus>(mut writer : W, corpus : &C) -> Result<
 ///
 /// * `writer` - The writer to write to
 /// * `corpus` - The corpus to write
-pub fn write_yaml<W : Write, C : Corpus>(mut writer : W, corpus : &C) -> Result<(), serde_yml::Error> 
-    where C::Content : Serialize {
+pub fn write_yaml<W : Write, C : ReadableCorpus>(mut writer : W, corpus : &C) -> Result<(), serde_yml::Error>  {
     let mut ser = serde_yml::Serializer::new(&mut writer);
     corpus_serialize(corpus, &mut ser)
 }
@@ -253,10 +249,9 @@ pub fn write_yaml<W : Write, C : Corpus>(mut writer : W, corpus : &C) -> Result<
 ///
 /// * `writer` - The writer to write to
 /// * `corpus` - The corpus to write
-pub fn write_jsonl<W : Write, C : Corpus>(mut writer : W, corpus : &C) -> Result<(), SerializeError>
-    where C::Content : Serialize {
-    for id in corpus.get_order() {
-        let doc = corpus.get_doc_by_id(id)?;
+pub fn write_jsonl<W : Write, C : ReadableCorpus>(mut writer : W, corpus : &C) -> Result<(), SerializeError> {
+    for res in corpus.iter_doc_ids() {
+        let (_, doc) = res?;
         serde_json::to_writer(&mut writer, &doc)?;
         writer.write_all(b"\n")?;
     }
@@ -474,6 +469,7 @@ mod tests {
     use crate::SimpleCorpus;
     use std::collections::HashSet;
     use serde_json::json;
+    use crate::Corpus;
 
     #[test]
     fn test_yaml_stream_reader() {

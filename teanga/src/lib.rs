@@ -51,7 +51,7 @@ pub use tcf::{write_tcf, write_tcf_with_config, read_tcf, write_tcf_header, writ
 pub use match_condition::{TextMatchCondition, DataMatchCondition};
 
 /// Trait that defines a corpus according to the Teanga Data Model
-pub trait Corpus {
+pub trait Corpus : WriteableCorpus + ReadableCorpus {
     /// The type of the layer storage
     type LayerStorage : IntoLayer;
     /// The type of the content
@@ -86,17 +86,6 @@ pub trait Corpus {
     fn build_layer(&mut self, name: &str) -> crate::layer_builder::LayerBuilderImpl<Self::LayerStorage, Self::Content, Self> where Self: Sized {
         build_layer(self, name)
     }
-    /// Add a document to this corpus
-    ///
-    /// # Arguments
-    ///
-    /// * `content` - The content of the document
-    ///
-    /// # Returns
-    ///
-    /// The ID of the document
-    fn add_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, content : DC) -> TeangaResult<String>;
-
     /// Build a document using a builder
     ///
     /// # Returns
@@ -135,9 +124,6 @@ pub trait Corpus {
 
     /// Get the IDs of all documents in the corpus
     fn get_docs(&self) -> Vec<String>;
-
-    /// Get the layer metadata
-    fn get_meta(&self) -> &HashMap<String, LayerDesc>;
 
     /// Clone the layer metadata
     fn clone_meta(&self) -> HashMap<String, LayerDesc> {
@@ -205,15 +191,6 @@ pub trait Corpus {
         }
         Ok(freq)
     } 
-    /// Iterate over all documents in the corpus
-    fn iter_docs<'a>(&'a self) -> Box<dyn Iterator<Item=TeangaResult<Document>> + 'a> {
-        Box::new(self.get_docs().into_iter().map(move |x| self.get_doc_by_id(&x)))
-    }
-    /// Iterate over all documents in the corpus with their IDs
-    fn iter_doc_ids<'a>(&'a self) -> Box<dyn Iterator<Item=TeangaResult<(String, Document)>> + 'a> {
-        Box::new(self.get_docs().into_iter().map(move |x| self.get_doc_by_id(&x).map(|d| (x, d))))
-    }
-
     /// Search the corpus for documents that match a query
     ///
     /// # Arguments
@@ -232,13 +209,32 @@ pub trait Corpus {
 }
 
 /// A corpus where the metadata and order can be changed
-pub trait WriteableCorpus : Corpus {
+pub trait WriteableCorpus {
     /// Set the metadata of the corpus
     fn set_meta(&mut self, meta : HashMap<String, LayerDesc>) -> TeangaResult<()>;
     /// Set the order of the documents in the corpus
     fn set_order(&mut self, order : Vec<String>) -> TeangaResult<()>;
+    /// Add a document to this corpus
+    ///
+    /// # Arguments
+    ///
+    /// * `content` - The content of the document
+    ///
+    /// # Returns
+    ///
+    /// The ID of the document
+    fn add_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, content : DC) -> TeangaResult<String>;
+
 }
 
+pub trait ReadableCorpus {
+    /// Iterate over all documents in the corpus
+    fn iter_docs<'a>(&'a self) -> Box<dyn Iterator<Item=TeangaResult<Document>> + 'a>;
+    /// Iterate over all documents in the corpus with their IDs
+    fn iter_doc_ids<'a>(&'a self) -> Box<dyn Iterator<Item=TeangaResult<(String, Document)>> + 'a>;
+    /// Get the layer metadata
+    fn get_meta(&self) -> &HashMap<String, LayerDesc>;
+}
 
 #[derive(Debug, Clone, PartialEq)]
 /// An in-memory corpus object
@@ -283,14 +279,6 @@ impl Corpus for SimpleCorpus {
             meta
         });
         Ok(())
-    }
-
-    fn add_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, content : DC) -> TeangaResult<String> {
-        let doc = Document::new(content, &self.meta)?;
-        let id = teanga_id(&self.order, &doc);
-        self.order.push(id.clone());
-        self.content.insert(id.clone(), doc);
-        Ok(id)
     }
 
     fn update_doc<D : IntoLayer, DC: DocumentContent<D>>(&mut self, id : &str, content : DC) -> TeangaResult<String> {
@@ -343,10 +331,6 @@ impl Corpus for SimpleCorpus {
         self.order.clone()
     }
 
-    fn get_meta(&self) -> &HashMap<String, LayerDesc> {
-        &self.meta
-    }
-
     fn get_order(&self) -> &Vec<String> {
         &self.order
     }
@@ -362,7 +346,33 @@ impl WriteableCorpus for SimpleCorpus {
         self.order = order;
         Ok(())
     }
+    fn add_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, content : DC) -> TeangaResult<String> {
+        let doc = Document::new(content, &self.meta)?;
+        let id = teanga_id(&self.order, &doc);
+        self.order.push(id.clone());
+        self.content.insert(id.clone(), doc);
+        Ok(id)
+    }
+
+
 }
+
+impl ReadableCorpus for SimpleCorpus {
+    /// Iterate over all documents in the corpus
+    fn iter_docs<'a>(&'a self) -> Box<dyn Iterator<Item=TeangaResult<Document>> + 'a> {
+        Box::new(self.get_docs().into_iter().map(move |x| self.get_doc_by_id(&x)))
+    }
+    /// Iterate over all documents in the corpus with their IDs
+    fn iter_doc_ids<'a>(&'a self) -> Box<dyn Iterator<Item=TeangaResult<(String, Document)>> + 'a> {
+        Box::new(self.get_docs().into_iter().map(move |x| self.get_doc_by_id(&x).map(|d| (x, d))))
+    }
+
+    fn get_meta(&self) -> &HashMap<String, LayerDesc> {
+        &self.meta
+    }
+}
+
+
 
 #[derive(Debug,Clone,PartialEq, Serialize,Deserialize)]
 #[serde(untagged)]
