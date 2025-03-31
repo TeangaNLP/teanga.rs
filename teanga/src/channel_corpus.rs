@@ -46,7 +46,7 @@ impl ChannelCorpusSender {
     }
 
     pub fn read_yaml_header<'de, R: std::io::Read>(&mut self, r: R) -> Result<(), TeangaYamlError> {
-        Ok(crate::serialization::read_yaml_meta(r, self)?)
+        Ok(crate::serialization::read_yaml_with_config(r, self, crate::SerializationSettings::new().header_only())?)
     }
 }
 

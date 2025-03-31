@@ -11,7 +11,32 @@ use std::io::Read;
 use std::io::Write;
 use thiserror::Error;
 
-struct TeangaVisitor2<'a, C : WriteableCorpus>(&'a mut C, bool);
+#[derive(Debug,Clone)]
+pub struct SerializationSettings {
+    pub header_only: bool,
+    pub ignore_id_errors: bool
+}
+
+impl SerializationSettings {
+    pub fn new() -> SerializationSettings {
+        SerializationSettings {
+            header_only: false,
+            ignore_id_errors: false
+        }
+    }
+
+    pub fn header_only(mut self) -> Self {
+        self.header_only = true;
+        self
+    }
+
+    pub fn ignore_id_errors(mut self) -> Self {
+        self.ignore_id_errors = true;
+        self
+    }
+}
+
+struct TeangaVisitor2<'a, C : WriteableCorpus>(&'a mut C, SerializationSettings);
 
 impl <'de,'a, C: WriteableCorpus> Visitor<'de> for TeangaVisitor2<'a, C> {
     type Value = ();
@@ -29,12 +54,13 @@ impl <'de,'a, C: WriteableCorpus> Visitor<'de> for TeangaVisitor2<'a, C> {
                 let data = map.next_value::<HashMap<String, LayerDesc>>()?;
                 self.0.set_meta(data)
                     .map_err(serde::de::Error::custom)?;
-            } else if !self.1 && key == "_order" {
+            } else if !self.1.header_only && key == "_order" {
                 order = Some(map.next_value::<Vec<String>>()?);
-            } else if !self.1 {
+            } else if !self.1.header_only {
                 let doc = map.next_value::<HashMap<String, Layer>>()?;
                 let id = self.0.add_doc(doc).map_err(serde::de::Error::custom)?;
-                if id[..min(id.len(), key.len())] != key[..min(id.len(), key.len())] {
+                if !self.1.ignore_id_errors && 
+                    id[..min(id.len(), key.len())] != key[..min(id.len(), key.len())] {
                     return Err(serde::de::Error::custom(format!("Document fails hash check: {} != {}", id, key)))
                 }
             }
@@ -132,18 +158,19 @@ pub fn pretty_yaml_serialize<W : Write, C: ReadableCorpus>(corpus: &C, mut write
 /// * `corpus` - The corpus to read into
 pub fn read_json<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -> Result<(), serde_json::Error> {
     let mut deserializer = serde_json::Deserializer::from_reader(reader);
-    deserializer.deserialize_any(TeangaVisitor2(corpus, false))
+    deserializer.deserialize_any(TeangaVisitor2(corpus, SerializationSettings::new()))
 }
 
-/// Read only the metadata from a JSON file
+/// Read a corpus from JSON with a configuration
 ///
 /// # Arguments
 ///
 /// * `reader` - The reader to read from
 /// * `corpus` - The corpus to read into
-pub fn read_json_meta<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -> Result<(), serde_json::Error> {
+/// * `settings` - The settings to use
+pub fn read_json_with_config<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C, settings : SerializationSettings) -> Result<(), serde_json::Error> {
     let mut deserializer = serde_json::Deserializer::from_reader(reader);
-    deserializer.deserialize_any(TeangaVisitor2(corpus, true))
+    deserializer.deserialize_any(TeangaVisitor2(corpus, settings))
 }
 
 /// Read a corpus from YAML
@@ -154,32 +181,17 @@ pub fn read_json_meta<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut
 /// * `corpus` - The corpus to read into
 /// * `meta_only` - Whether to read only the metadata
 pub fn read_yaml<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -> Result<(), SerializeError> {
-    let char_iter = reader.bytes().filter_map(Result::ok).map(|b| b as char);
-    let parser = yaml_rust::parser::Parser::new(char_iter);
-    let mut reader = YamlStreamReader { parser };
-    while let Some((key, value)) = reader.next_entry()? {
-        if key == "_meta" {
-            corpus.set_meta(serde_json::from_value(value)?)?;
-        } else if key == "_order" {
-            corpus.set_order(serde_json::from_value(value)?)?;
-        } else {
-            let doc : HashMap<String, Layer> = serde_json::from_value(value)?;
-            let id = corpus.add_doc(doc)?;
-            if id[..min(id.len(), key.len())] != key[..min(id.len(), key.len())] {
-                panic!("Document fails hash check: {} != {}", id, key);
-            }
-        }
-    }
-    Ok(())
+    read_yaml_with_config(reader, corpus, SerializationSettings::new())
 }
 
-// Read only the metadata from a YAML file
+// Read a corpus from YAML with a configuration
 //
 // # Arguments
 //
 // * `reader` - The reader to read from
 // * `corpus` - The corpus to read into
-pub fn read_yaml_meta<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -> Result<(), SerializeError> {
+// * `settings` - The settings to use
+pub fn read_yaml_with_config<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C, settings : SerializationSettings) -> Result<(), SerializeError> {
     let char_iter = reader.bytes().filter_map(Result::ok).map(|b| b as char);
     let parser = yaml_rust::parser::Parser::new(char_iter);
     let mut reader = YamlStreamReader { parser };
@@ -188,6 +200,13 @@ pub fn read_yaml_meta<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut
             corpus.set_meta(serde_json::from_value(value)?)?;
         } else if key == "_order" {
             corpus.set_order(serde_json::from_value(value)?)?;
+        } else if !settings.header_only {
+            let doc : HashMap<String, Layer> = serde_json::from_value(value)?;
+            let id = corpus.add_doc(doc)?;
+            if !settings.ignore_id_errors &&
+                id[..min(id.len(), key.len())] != key[..min(id.len(), key.len())] {
+                panic!("Document fails hash check: {} != {}", id, key);
+            }
         }
     }
     Ok(())
@@ -606,7 +625,8 @@ ecWc:
     type: div
     base: characters".to_string();
  
-        read_yaml_meta(data.as_bytes(), &mut SimpleCorpus::new()).unwrap();
+        read_yaml_with_config(data.as_bytes(), &mut SimpleCorpus::new(),
+            SerializationSettings::new().header_only()).unwrap();
     }
 
     #[test]
