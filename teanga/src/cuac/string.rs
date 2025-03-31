@@ -8,7 +8,7 @@ use std::io::Read;
 use crate::TeangaResult;
 use crate::document::Document;
 use crate::layer::Layer;
-use crate::tcf::write::TCFWriteError;
+use crate::cuac::write::CuacWriteError;
 
 /// Trait for compressing and decompressing strings
 pub trait StringCompression {
@@ -80,7 +80,7 @@ impl ShocoCompression {
         ShocoCompression(shoco::ShocoModel::default())
     }
 
-    pub fn from_corpus<'a>(docs : &mut Box<dyn Iterator<Item=TeangaResult<Document>> + 'a>, size : usize) -> Result<ShocoCompression, TCFWriteError> {
+    pub fn from_corpus<'a>(docs : &mut Box<dyn Iterator<Item=TeangaResult<Document>> + 'a>, size : usize) -> Result<ShocoCompression, CuacWriteError> {
         let mut data = Vec::new();
         let mut total_data = 0;
         for doc in docs {
@@ -300,10 +300,10 @@ mod tests {
     use crate::SimpleCorpus;
     use crate::layer::LayerType;
     use crate::layer_builder::build_layer;
-    use crate::tcf::write::write_tcf_with_config;
-    use crate::tcf::read::read_tcf;
-    use crate::tcf::TCFConfig;
-    use crate::tcf::StringCompressionMethod;
+    use crate::cuac::write::write_cuac_with_config;
+    use crate::cuac::read::read_cuac;
+    use crate::cuac::CuacConfig;
+    use crate::cuac::StringCompressionMethod;
     use crate::WriteableCorpus;
 
     #[test]
@@ -364,10 +364,10 @@ mod tests {
         let mut doc = corpus.get_doc_by_id(&doc_id).unwrap();
         doc.set("url", Layer::LS(vec!["https://klyq.com/beginners-bbq-class-taking-place-in-missoula/".to_string()]));
         let mut data : Vec<u8> = Vec::new();
-        write_tcf_with_config(&mut data, &corpus,
-            &TCFConfig::new().with_string_compression(method)).unwrap();
+        write_cuac_with_config(&mut data, &corpus,
+            &CuacConfig::new().with_string_compression(method)).unwrap();
         let mut corpus2 = SimpleCorpus::new();
-        read_tcf(&mut data.as_slice(), &mut corpus2).unwrap();
+        read_cuac(&mut data.as_slice(), &mut corpus2).unwrap();
         assert_eq!(corpus, corpus2);
     }
 

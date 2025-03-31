@@ -15,7 +15,7 @@ pub enum IndexResult {
 }
 
 
-/// An index for strings used to store values in a TCF file
+/// An index for strings used to store values in a Cuac file
 #[derive(Debug, Clone)]
 pub struct Index {
     map : Arc<RwLock<HashMap<String, u32>>>,

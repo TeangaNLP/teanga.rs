@@ -7,17 +7,17 @@ use teanga::{LayerDesc, teanga_id, Document, Index,
 use teanga::SmazCompression;
 
 #[pyclass]
-pub struct TCFPyCorpus {
+pub struct CuacPyCorpus {
     pub meta : HashMap<String, LayerDesc>,
     pub meta_keys : Vec<String>,
     pub data : Py<PyByteArray>,
     pub offsets : HashMap<String, usize>,
     pub order : Vec<String>,
-    pub index : TCFPyIndex
+    pub index : CuacPyIndex
 }
 
 #[pymethods]
-impl TCFPyCorpus {
+impl CuacPyCorpus {
     #[new]
     /// Create a new corpus
     ///
@@ -27,14 +27,14 @@ impl TCFPyCorpus {
     /// # Returns
     /// A new corpus object
     ///
-    pub fn new<'p>(py : Python<'p>) -> PyResult<TCFPyCorpus> {
-        Ok(TCFPyCorpus {
+    pub fn new<'p>(py : Python<'p>) -> PyResult<CuacPyCorpus> {
+        Ok(CuacPyCorpus {
             meta: HashMap::new(),
             meta_keys: Vec::new(),
             order: Vec::new(),
             data: PyByteArray::new_bound(py, &[0u8; 0]).into(),
             offsets: HashMap::new(),
-            index : TCFPyIndex::new()
+            index : CuacPyIndex::new()
         })
     }
 
@@ -73,7 +73,7 @@ impl TCFPyCorpus {
         unsafe {
             d.as_bytes_mut()[n..].copy_from_slice(&data);
         }
-        self.index = TCFPyIndex::from_index(index);
+        self.index = CuacPyIndex::from_index(index);
         Ok(())
     }
 
@@ -95,7 +95,7 @@ impl TCFPyCorpus {
                     &SmazCompression)
                     .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?
             };
-            self.index = TCFPyIndex::from_index(index);
+            self.index = CuacPyIndex::from_index(index);
             Ok(doc.content.iter().map(|(k, v)| (k.clone(), PyRawLayer(v.clone()))).collect())
         } else {
             Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
@@ -125,21 +125,21 @@ impl TCFPyCorpus {
     }
 
     fn update_doc<'p>(&mut self, _py : Python<'p>, _id : &str, _content: HashMap<String, PyRawLayer>) -> PyResult<String> {
-        panic!("Updating documents not yet supported in TCF")
+        panic!("Updating documents not yet supported in Cuac")
     }
 
 }
 
 #[pyclass]
-pub struct TCFPyIndex {
+pub struct CuacPyIndex {
     pub keys : HashMap<String, u32>,
     pub key_strs : Vec<String>,
     pub lru : Vec<String>
 }
 
-impl TCFPyIndex {
-    pub fn new() -> TCFPyIndex {
-        TCFPyIndex {
+impl CuacPyIndex {
+    pub fn new() -> CuacPyIndex {
+        CuacPyIndex {
             keys: HashMap::new(),
             key_strs: Vec::new(),
             lru : Vec::new()
@@ -151,9 +151,9 @@ impl TCFPyIndex {
             self.lru.clone())
     }
 
-    pub fn from_index(index : Index) -> TCFPyIndex {
+    pub fn from_index(index : Index) -> CuacPyIndex {
         let (keys, key_strs, lru) = index.into_values().unwrap();
-        TCFPyIndex {
+        CuacPyIndex {
             keys,
             key_strs,
             lru

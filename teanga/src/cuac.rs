@@ -6,24 +6,24 @@ mod index;
 mod read;
 mod layer;
 mod string;
-mod tcf_index;
+mod cuac_index;
 mod type_index;
 mod write;
 
-pub use write::{write_tcf, write_tcf_with_config, write_tcf_header, write_tcf_config, write_tcf_header_compression, write_tcf_doc, doc_content_to_bytes, TCFWriteError};
-pub use read::{read_tcf, read_tcf_header, read_tcf_doc, bytes_to_doc, TCFReadError};
+pub use write::{write_cuac, write_cuac_with_config, write_cuac_header, write_cuac_config, write_cuac_header_compression, write_cuac_doc, doc_content_to_bytes, CuacWriteError};
+pub use read::{read_cuac, read_cuac_header, read_cuac_doc, bytes_to_doc, CuacReadError};
 pub use index::{Index, IndexResult};
 pub use string::{StringCompression, SupportedStringCompression, StringCompressionError, NoCompression, SmazCompression, ShocoCompression};
 
-/// A TCF Result type
-pub type TCFResult<T> = Result<T, TCFError>;
+/// A Cuac Result type
+pub type CuacResult<T> = Result<T, CuacError>;
 
-/// TCF errors
+/// Cuac errors
 #[derive(Error, Debug)]
-pub enum TCFError {
+pub enum CuacError {
     /// String compression error
     #[error("String compression error: {0}")]
-    StringCompressionError(#[from] crate::tcf::string::StringCompressionError),
+    StringCompressionError(#[from] crate::cuac::string::StringCompressionError),
     /// Ciborium error
     #[error("Ciborium Error: {0}")]
     CiboriumError(#[from] ciborium::de::Error<std::io::Error>),
@@ -34,7 +34,7 @@ pub enum TCFError {
     #[error("IO Error: {0}")]
     IOError(#[from] std::io::Error),
     /// A byte was not in the expected range
-    #[error("Invalid TCF byte")]
+    #[error("Invalid Cuac byte")]
     InvalidByte,
     /// An index was not sorted
     #[error("Index not sorted")]
@@ -44,36 +44,36 @@ pub enum TCFError {
     InvalidEnumValue(String),
 }
 
-/// Configuration for TCF 
+/// Configuration for Cuac 
 #[derive(Debug, Clone, PartialEq)]
-pub struct TCFConfig {
+pub struct CuacConfig {
     /// The compression to use for strings
     pub string_compression : StringCompressionMethod
 }
 
-impl Default for TCFConfig {
+impl Default for CuacConfig {
     fn default() -> Self {
-        TCFConfig {
+        CuacConfig {
             string_compression : StringCompressionMethod::Smaz
         }
     }
 }
 
-impl TCFConfig {
-    /// Create a new TCF configuration
+impl CuacConfig {
+    /// Create a new Cuac configuration
     ///
     /// # Arguments
     /// * `string_compression` - The compression method for strings
     ///
     /// # Returns
-    /// A new TCF configuration
-    pub fn new() -> TCFConfig {
-        TCFConfig {
+    /// A new Cuac configuration
+    pub fn new() -> CuacConfig {
+        CuacConfig {
             string_compression : StringCompressionMethod::Smaz
         }
     }
 
-    pub fn with_string_compression(mut self, sc : StringCompressionMethod) -> TCFConfig {
+    pub fn with_string_compression(mut self, sc : StringCompressionMethod) -> CuacConfig {
         self.string_compression = sc;
         self
     }
@@ -92,5 +92,5 @@ pub enum StringCompressionMethod {
     GenerateShocoModel(usize)
 }
 
-/// The TCF version for binary compatibility
-pub static TCF_VERSION : u16 = 1;
+/// The Cuac version for binary compatibility
+pub static CUAC_VERSION : u16 = 1;

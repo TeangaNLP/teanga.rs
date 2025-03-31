@@ -1,6 +1,6 @@
 use std::io::BufRead;
 
-use crate::tcf::TCFResult;
+use crate::cuac::CuacResult;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeIndex(Vec<u8>, usize);
@@ -35,7 +35,7 @@ impl TypeIndex {
         (TypeIndex(data[0..l].to_vec(), len), l)
     }
 
-    pub fn from_reader<R : BufRead>(input : &mut R, len : usize) -> TCFResult<TypeIndex> {
+    pub fn from_reader<R : BufRead>(input : &mut R, len : usize) -> CuacResult<TypeIndex> {
         let mut buf = vec![0u8; len / 8 + (if len % 8 == 0 { 0 } else { 1 })];
         input.read_exact(&mut buf)?;
         Ok(TypeIndex(buf, len)) 

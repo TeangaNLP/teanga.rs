@@ -5,22 +5,22 @@ use std::io::Write;
 use thiserror::Error;
 use crate::{TeangaResult, TeangaError, DocumentContent, IntoLayer, ReadableCorpus};
 
-use crate::tcf::TCF_VERSION;
-use crate::tcf::TCFConfig;
-use crate::tcf::StringCompressionMethod;
-use crate::tcf::TCFResult;
-use crate::tcf::index::Index;
-use crate::tcf::layer::TCFLayer;
-use crate::tcf::layer::TCF_EMPTY_LAYER;
-use crate::tcf::string::StringCompression;
-use crate::tcf::string::ShocoCompression;
-use crate::tcf::string::SupportedStringCompression;
-use crate::tcf::string::write_shoco_model;
+use crate::cuac::CUAC_VERSION;
+use crate::cuac::CuacConfig;
+use crate::cuac::StringCompressionMethod;
+use crate::cuac::CuacResult;
+use crate::cuac::index::Index;
+use crate::cuac::layer::CuacLayer;
+use crate::cuac::layer::CUAC_EMPTY_LAYER;
+use crate::cuac::string::StringCompression;
+use crate::cuac::string::ShocoCompression;
+use crate::cuac::string::SupportedStringCompression;
+use crate::cuac::string::write_shoco_model;
 
 
 fn layer_to_bytes<C : StringCompression>(layer : &Layer, idx : &mut Index, 
-    ld : &LayerDesc, c : &C) -> TCFResult<Vec<u8>> {
-    Ok(TCFLayer::from_layer(layer, idx, ld, c)?.into_bytes(c))
+    ld : &LayerDesc, c : &C) -> CuacResult<Vec<u8>> {
+    Ok(CuacLayer::from_layer(layer, idx, ld, c)?.into_bytes(c))
 }
 
 
@@ -46,45 +46,45 @@ pub fn doc_content_to_bytes<DC: DocumentContent<L>, L : IntoLayer, C : StringCom
                 index, meta.get(key).unwrap(), c)?;
             out.extend(b.as_slice());
         } else {
-            // TCF uses the first byte to identify the layer type, starting
+            // Cuac uses the first byte to identify the layer type, starting
             // from 0, so we use this to indicate a missing layer
-            out.push(TCF_EMPTY_LAYER);
+            out.push(CUAC_EMPTY_LAYER);
         }
     }
     Ok(out)
 }
 
 
-/// An error writing the TCF file
+/// An error writing the Cuac file
 #[derive(Error, Debug)]
-pub enum TCFWriteError {
+pub enum CuacWriteError {
     #[error("IO error: {0}")]
     IOError(#[from] std::io::Error),
     #[error("Teanga error: {0}")]
     TeangaError(#[from] TeangaError)
 }
 
-/// Write the corpus to TCF
+/// Write the corpus to Cuac
 ///
 /// # Arguments
 ///
 /// * `out` - The output stream
 /// * `corpus` - The corpus to write
-pub fn write_tcf<W : Write, C: ReadableCorpus>(
-    out : &mut W, corpus : &C) -> Result<(), TCFWriteError> {
-    write_tcf_with_config(out, corpus, &TCFConfig::default())
+pub fn write_cuac<W : Write, C: ReadableCorpus>(
+    out : &mut W, corpus : &C) -> Result<(), CuacWriteError> {
+    write_cuac_with_config(out, corpus, &CuacConfig::default())
 }
 
-/// Write the corpus to TCF with a configuration
+/// Write the corpus to Cuac with a configuration
 ///
 /// # Arguments
 ///
 /// * `out` - The output stream
 /// * `corpus` - The corpus to write
-/// * `config` - The configuration for the TCF
-pub fn write_tcf_with_config<W : Write, C: ReadableCorpus>(
-    out : &mut W, corpus : &C, config : &TCFConfig) -> Result<(), TCFWriteError> {
-    write_tcf_header(out, &corpus.get_meta())?;
+/// * `config` - The configuration for the Cuac
+pub fn write_cuac_with_config<W : Write, C: ReadableCorpus>(
+    out : &mut W, corpus : &C, config : &CuacConfig) -> Result<(), CuacWriteError> {
+    write_cuac_header(out, &corpus.get_meta())?;
 
     // The purpose of this is to allow the compression method to read ahead
     // without consuming the iterator. We cache all the documents in memory
@@ -105,26 +105,26 @@ pub fn write_tcf_with_config<W : Write, C: ReadableCorpus>(
                 }
             }
         }));
-    let string_compression = write_tcf_config(out, &mut iter, config)?;
+    let string_compression = write_cuac_config(out, &mut iter, config)?;
     let mut index = Index::new();
 
     // Now we replay the iterator
     let replay = replay.take();
     for doc in replay {
-        write_tcf_doc(out, doc,
+        write_cuac_doc(out, doc,
                 &mut index, &corpus.get_meta(), &string_compression)?;
     }
 
     // And save the rest of the documents
     *do_replay.borrow_mut() = false;
     for doc in iter {
-        write_tcf_doc(out, doc?,
+        write_cuac_doc(out, doc?,
                 &mut index, &corpus.get_meta(), &string_compression)?;
     }
     Ok(())
 }
 
-/// Write only the TCF header.
+/// Write only the Cuac header.
 ///
 /// This is used for progressive conversion on the command line
 ///
@@ -136,11 +136,11 @@ pub fn write_tcf_with_config<W : Write, C: ReadableCorpus>(
 /// # Returns
 ///
 /// The index and the keys of the layers in the corpus. These are then required
-/// to call `write_tcf_doc` for each document
-pub fn write_tcf_header<W : Write>(
-    out : &mut W, meta : &HashMap<String, LayerDesc>) -> Result<(Index, Vec<String>), TCFWriteError> {
+/// to call `write_cuac_doc` for each document
+pub fn write_cuac_header<W : Write>(
+    out : &mut W, meta : &HashMap<String, LayerDesc>) -> Result<(Index, Vec<String>), CuacWriteError> {
     out.write("TEANGA".as_bytes())?;
-    out.write(TCF_VERSION.to_be_bytes().as_ref())?;
+    out.write(CUAC_VERSION.to_be_bytes().as_ref())?;
     let mut meta_bytes : Vec<u8> = Vec::new();
     into_writer(meta, &mut meta_bytes).unwrap();
     out.write((meta_bytes.len() as u32).to_be_bytes().as_ref())?;
@@ -151,15 +151,15 @@ pub fn write_tcf_header<W : Write>(
     Ok((index, meta_keys))
 }
 
-/// Write the TCF configuration
+/// Write the Cuac configuration
 ///
 /// # Arguments
 ///
 /// * `out` - The output stream
 /// * `corpus` - The corpus to write
-/// * `config` - The configuration for the TCF
-pub fn write_tcf_config<'a, W : Write>(
-    out : &mut W, docs : &mut Box<dyn Iterator<Item=TeangaResult<Document>> + 'a>, config : &TCFConfig) -> Result<SupportedStringCompression, TCFWriteError> {
+/// * `config` - The configuration for the Cuac
+pub fn write_cuac_config<'a, W : Write>(
+    out : &mut W, docs : &mut Box<dyn Iterator<Item=TeangaResult<Document>> + 'a>, config : &CuacConfig) -> Result<SupportedStringCompression, CuacWriteError> {
     let c = match config.string_compression {
         StringCompressionMethod::None => {
             out.write(&[0u8])?;
@@ -183,17 +183,17 @@ pub fn write_tcf_config<'a, W : Write>(
     Ok(c)
 }
 
-/// Write TCF header and compression method
+/// Write Cuac header and compression method
 ///
 /// # Arguments
 ///
 /// * `out` - The output stream
 /// * `meta` - The metadata for the corpus
 /// * `string_compression` - The string compression method
-pub fn write_tcf_header_compression<W: Write>(
-    out : &mut W, meta : &HashMap<String, LayerDesc>, string_compression : &SupportedStringCompression) -> Result<(), TCFWriteError> {
+pub fn write_cuac_header_compression<W: Write>(
+    out : &mut W, meta : &HashMap<String, LayerDesc>, string_compression : &SupportedStringCompression) -> Result<(), CuacWriteError> {
     out.write("TEANGA".as_bytes())?;
-    out.write(TCF_VERSION.to_be_bytes().as_ref())?;
+    out.write(CUAC_VERSION.to_be_bytes().as_ref())?;
     let mut meta_bytes : Vec<u8> = Vec::new();
     into_writer(meta, &mut meta_bytes).unwrap();
     out.write((meta_bytes.len() as u32).to_be_bytes().as_ref())?;
@@ -218,9 +218,9 @@ pub fn write_tcf_header_compression<W: Write>(
 }
 
 
-/// Write a single document as TCF.
+/// Write a single document as Cuac.
 ///
-/// This should be called after `write_tcf_header` to write the document
+/// This should be called after `write_cuac_header` to write the document
 ///
 /// # Arguments
 ///
@@ -228,9 +228,9 @@ pub fn write_tcf_header_compression<W: Write>(
 /// * `doc` - The document to write
 /// * `index` - The index for the document
 /// * `meta` - The corpus to write
-pub fn write_tcf_doc<W : Write, S: StringCompression>(
+pub fn write_cuac_doc<W : Write, S: StringCompression>(
     out : &mut W, doc : Document, index : &mut Index,
-    meta : &HashMap<String, LayerDesc>, s :&S) -> Result<(), TCFWriteError> {
+    meta : &HashMap<String, LayerDesc>, s :&S) -> Result<(), CuacWriteError> {
     let mut meta_keys : Vec<String> = meta.keys().cloned().collect();
     meta_keys.sort();
     out.write(doc_content_to_bytes(doc, &meta_keys, meta, index, s)?.as_slice())?;

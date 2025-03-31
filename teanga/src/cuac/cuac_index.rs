@@ -1,18 +1,18 @@
 use std::io::BufRead;
 
-use crate::tcf::TCFResult;
+use crate::cuac::CuacResult;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct TCFIndex {
+pub struct CuacIndex {
     pub precision: u8,
     pub length: usize,
     pub data: Vec<u8>,
 }
 
-impl TCFIndex {
-    pub fn from_vec(vec : &Vec<u32>) -> TCFIndex {
+impl CuacIndex {
+    pub fn from_vec(vec : &Vec<u32>) -> CuacIndex {
         if vec.is_empty() {
-            return TCFIndex {
+            return CuacIndex {
                 precision: 0,
                 length: 0,
                 data: Vec::new(),
@@ -20,7 +20,7 @@ impl TCFIndex {
         }
         let max = vec.iter().max().unwrap();
         if max == &0 {
-            return TCFIndex {
+            return CuacIndex {
                 precision: 0,
                 length: vec.len(),
                 data: Vec::new(),
@@ -52,7 +52,7 @@ impl TCFIndex {
         if offset != 0 {
             data.push(last);
         }
-        TCFIndex {
+        CuacIndex {
             precision,
             length,
             data,
@@ -109,20 +109,20 @@ impl TCFIndex {
         d
     }
 
-    pub fn from_bytes(bytes : &[u8]) -> TCFResult<(TCFIndex, usize)> {
+    pub fn from_bytes(bytes : &[u8]) -> CuacResult<(CuacIndex, usize)> {
         let precision = bytes[0];
         let length = u32::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]) as usize;
         let n_bits = length * precision as usize;
         let n_bytes = (n_bits + 7) / 8;
         let data = bytes[5..5+n_bytes].to_vec();
-        Ok((TCFIndex {
+        Ok((CuacIndex {
             precision,
             length,
             data,
         }, 5 + length))
     }
 
-    pub fn from_reader<R : BufRead>(input : &mut R) -> TCFResult<TCFIndex> {
+    pub fn from_reader<R : BufRead>(input : &mut R) -> CuacResult<CuacIndex> {
         let mut buf = vec![0u8; 5];
         input.read_exact(&mut buf)?;
         let precision = buf[0];
@@ -131,7 +131,7 @@ impl TCFIndex {
         let n_bytes = (n_bits + 7) / 8;
         let mut buf = vec![0u8; n_bytes];
         input.read_exact(&mut buf)?;
-        Ok(TCFIndex {
+        Ok(CuacIndex {
             precision,
             length,
             data: Vec::from(buf)
@@ -197,70 +197,70 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_tcf_index() {
+    fn test_cuac_index() {
         let vec = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let tcf = TCFIndex::from_vec(&vec);
-        assert_eq!(tcf.precision, 4);
-        assert_eq!(tcf.length, 10);
-        assert_eq!(tcf.data, vec![0b0000_0001, 0b0010_0011, 0b0100_0101, 0b0110_0111, 0b1000_1001]);
+        let cuac = CuacIndex::from_vec(&vec);
+        assert_eq!(cuac.precision, 4);
+        assert_eq!(cuac.length, 10);
+        assert_eq!(cuac.data, vec![0b0000_0001, 0b0010_0011, 0b0100_0101, 0b0110_0111, 0b1000_1001]);
     }
 
 
     #[test]
-    fn test_tcf_index2() {
+    fn test_cuac_index2() {
         let vec = vec![0, 1, 2, 3, 4, 5, 6];
-        let tcf = TCFIndex::from_vec(&vec);
-        assert_eq!(tcf.precision, 3);
-        assert_eq!(tcf.length, 7);
-        assert_eq!(tcf.data, vec![0b0000_0101, 0b0011_1001, 0b0111_0000]);
+        let cuac = CuacIndex::from_vec(&vec);
+        assert_eq!(cuac.precision, 3);
+        assert_eq!(cuac.length, 7);
+        assert_eq!(cuac.data, vec![0b0000_0101, 0b0011_1001, 0b0111_0000]);
     }
 
     #[test]
-    fn test_tcf_index3() {
+    fn test_cuac_index3() {
         let vec = vec![1, 1000];
-        let tcf = TCFIndex::from_vec(&vec);
-        assert_eq!(tcf.precision, 10);
-        assert_eq!(tcf.length, 2);
-        assert_eq!(tcf.data, vec![0b0000_0000, 0b0111_1110, 0b1000_0000]);
+        let cuac = CuacIndex::from_vec(&vec);
+        assert_eq!(cuac.precision, 10);
+        assert_eq!(cuac.length, 2);
+        assert_eq!(cuac.data, vec![0b0000_0000, 0b0111_1110, 0b1000_0000]);
     }
 
     #[test]
-    fn test_tcf_to_vec() {
+    fn test_cuac_to_vec() {
         let vec = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let tcf = TCFIndex::from_vec(&vec);
-        let vec2 = tcf.to_vec();
+        let cuac = CuacIndex::from_vec(&vec);
+        let vec2 = cuac.to_vec();
         assert_eq!(vec, vec2);
     }
 
     #[test]
-    fn test_tcf_to_vec2() {
+    fn test_cuac_to_vec2() {
         let vec = vec![0, 1, 2, 3, 4, 5, 6];
-        let tcf = TCFIndex::from_vec(&vec);
-        let vec2 = tcf.to_vec();
+        let cuac = CuacIndex::from_vec(&vec);
+        let vec2 = cuac.to_vec();
         assert_eq!(vec, vec2);
     }
 
     #[test]
-    fn test_tcf_to_vec3() {
+    fn test_cuac_to_vec3() {
         let vec = vec![1, 1000];
-        let tcf = TCFIndex::from_vec(&vec);
-        let vec2 = tcf.to_vec();
+        let cuac = CuacIndex::from_vec(&vec);
+        let vec2 = cuac.to_vec();
         assert_eq!(vec, vec2);
     }
 
     #[test]
     fn test_empty() {
         let vec = Vec::new();
-        let tcf = TCFIndex::from_vec(&vec);
-        let vec2 = tcf.to_vec();
+        let cuac = CuacIndex::from_vec(&vec);
+        let vec2 = cuac.to_vec();
         assert_eq!(vec, vec2);
     }
 
     #[test]
     fn test_all_zero() {
         let vec = vec![0,0];
-        let tcf = TCFIndex::from_vec(&vec);
-        let vec2 = tcf.to_vec();
+        let cuac = CuacIndex::from_vec(&vec);
+        let vec2 = cuac.to_vec();
         assert_eq!(vec, vec2);
     }
 }

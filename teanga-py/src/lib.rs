@@ -2,13 +2,14 @@
 // Author: John P. McCrae
 // License: Apache 2.0
 use pyo3::prelude::*;
-use ::teanga::{DiskCorpus, PathAsDB, LayerDesc, LayerType, DataType, Value, Layer, Corpus, ReadableCorpus};
+use ::teanga::disk_corpus::{DiskCorpus, PathAsDB};
+use ::teanga::{LayerDesc, LayerType, DataType, Value, Layer, Corpus, ReadableCorpus};
 use std::collections::HashMap;
 
-mod tcf_py;
+mod cuac_py;
 mod query;
 
-use tcf_py::TCFPyCorpus;
+use cuac_py::CuacPyCorpus;
 use ::teanga::{TeangaResult, IntoLayer, WriteableCorpus, TeangaError};
 
 #[pyclass(name="Corpus")]
@@ -583,7 +584,7 @@ impl IntoPy<PyObject> for PyDataType {
 
 #[pyfunction]
 fn read_corpus_from_json_string(s : &str, path : &str) -> PyResult<PyDiskCorpus> {
-    let mut corpus = ::teanga::DiskCorpus::new_path_db(path);
+    let mut corpus = DiskCorpus::new_path_db(path);
     //::teanga::read_corpus_from_json_string(s, path).map_err(|e|
     ::teanga::read_json(s.as_bytes(), &mut corpus).map_err(|e|
         PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
@@ -592,7 +593,7 @@ fn read_corpus_from_json_string(s : &str, path : &str) -> PyResult<PyDiskCorpus>
 
 #[pyfunction]
 fn read_corpus_from_json_file(json : &str, path: &str) -> PyResult<PyDiskCorpus> {
-    let mut corpus = ::teanga::DiskCorpus::new_path_db(path);
+    let mut corpus = DiskCorpus::new_path_db(path);
     let file = std::fs::File::open(json).map_err(|e|
         PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
     ::teanga::read_json(file, &mut corpus).map_err(|e|
@@ -601,18 +602,18 @@ fn read_corpus_from_json_file(json : &str, path: &str) -> PyResult<PyDiskCorpus>
 }
 
 #[pyfunction]
-fn read_corpus_from_tcf_file(tcf : &str, path : &str) -> PyResult<PyDiskCorpus> {
-    let mut corpus = ::teanga::DiskCorpus::new_path_db(path);
-    let file = std::fs::File::open(tcf).map_err(|e|
+fn read_corpus_from_cuac_file(cuac : &str, path : &str) -> PyResult<PyDiskCorpus> {
+    let mut corpus = DiskCorpus::new_path_db(path);
+    let file = std::fs::File::open(cuac).map_err(|e|
         PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
-    ::teanga::read_tcf(file, &mut corpus).map_err(|e|
+    ::teanga::read_cuac(file, &mut corpus).map_err(|e|
         PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
     Ok(PyDiskCorpus(corpus))
 }
 
 #[pyfunction]
 fn read_corpus_from_yaml_string(s : &str, path: &str) -> PyResult<PyDiskCorpus> {
-    let mut corpus = ::teanga::DiskCorpus::new_path_db(path);
+    let mut corpus = DiskCorpus::new_path_db(path);
     ::teanga::read_yaml(s.as_bytes(), &mut corpus).map_err(|e|
         PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
     Ok(PyDiskCorpus(corpus))
@@ -620,7 +621,7 @@ fn read_corpus_from_yaml_string(s : &str, path: &str) -> PyResult<PyDiskCorpus> 
 
 #[pyfunction]
 fn read_corpus_from_yaml_file(yaml : &str, path: &str) -> PyResult<PyDiskCorpus> {
-    let mut corpus = ::teanga::DiskCorpus::new_path_db(path);
+    let mut corpus = DiskCorpus::new_path_db(path);
     let file = std::fs::File::open(yaml).map_err(|e|
         PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
     ::teanga::read_yaml(file, &mut corpus).map_err(|e|
@@ -630,7 +631,7 @@ fn read_corpus_from_yaml_file(yaml : &str, path: &str) -> PyResult<PyDiskCorpus>
 
 #[pyfunction]
 fn read_corpus_from_yaml_url(url : &str, path : &str) -> PyResult<PyDiskCorpus> {
-    let mut corpus = ::teanga::DiskCorpus::new_path_db(path);
+    let mut corpus = DiskCorpus::new_path_db(path);
     let url = reqwest::blocking::get(url).map_err(|e|
         PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
     ::teanga::read_yaml(url, &mut corpus).map_err(|e|
@@ -648,10 +649,10 @@ fn write_corpus_to_yaml(corpus : &PyDiskCorpus, path : &str) -> PyResult<()> {
 }
 
 #[pyfunction]
-fn write_corpus_to_tcf(corpus : &PyDiskCorpus, path : &str) -> PyResult<()> {
+fn write_corpus_to_cuac(corpus : &PyDiskCorpus, path : &str) -> PyResult<()> {
     let mut file = std::fs::File::create(path).map_err(|e|
         PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
-    ::teanga::write_tcf(&mut file, &corpus.0).map_err(|e|
+    ::teanga::write_cuac(&mut file, &corpus.0).map_err(|e|
         PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
     Ok(())
 }
@@ -687,17 +688,17 @@ fn write_corpus_to_yaml_string(corpus : &PyDiskCorpus) -> PyResult<String> {
 #[pyo3(name="teanga")]
 fn teanga(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDiskCorpus>()?;
-    m.add_class::<TCFPyCorpus>()?;
+    m.add_class::<CuacPyCorpus>()?;
     m.add_function(wrap_pyfunction!(read_corpus_from_json_string, m)?)?;
     m.add_function(wrap_pyfunction!(read_corpus_from_yaml_string, m)?)?;
     m.add_function(wrap_pyfunction!(read_corpus_from_json_file, m)?)?;
     m.add_function(wrap_pyfunction!(read_corpus_from_yaml_file, m)?)?;
-    m.add_function(wrap_pyfunction!(read_corpus_from_tcf_file, m)?)?;
+    m.add_function(wrap_pyfunction!(read_corpus_from_cuac_file, m)?)?;
     m.add_function(wrap_pyfunction!(read_corpus_from_yaml_url, m)?)?;
     m.add_function(wrap_pyfunction!(write_corpus_to_yaml, m)?)?;
     m.add_function(wrap_pyfunction!(write_corpus_to_yaml_string, m)?)?;
     m.add_function(wrap_pyfunction!(write_corpus_to_json, m)?)?;
     m.add_function(wrap_pyfunction!(write_corpus_to_json_string, m)?)?;
-    m.add_function(wrap_pyfunction!(write_corpus_to_tcf, m)?)?;
+    m.add_function(wrap_pyfunction!(write_corpus_to_cuac, m)?)?;
     Ok(())
 }

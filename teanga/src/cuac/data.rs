@@ -1,42 +1,42 @@
 /// Teanga Compressed Format
 use crate::{LayerDesc, DataType};
-use crate::tcf::string::StringCompression;
-use crate::tcf::index::{Index, IndexResult};
-use crate::tcf::tcf_index::TCFIndex;
-use crate::tcf::type_index::TypeIndex;
-use crate::tcf::{TCFResult, TCFError};
+use crate::cuac::string::StringCompression;
+use crate::cuac::index::{Index, IndexResult};
+use crate::cuac::cuac_index::CuacIndex;
+use crate::cuac::type_index::TypeIndex;
+use crate::cuac::{CuacResult, CuacError};
 use std::collections::HashMap;
 use std::io::BufRead;
 
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum TCFData {
+pub enum CuacData {
     String(Vec<IndexResult>),
     Enum(Vec<u32>)
 }
 
-impl TCFData {
+impl CuacData {
     pub fn from_iter<'a, I>(iter : I, ld : &LayerDesc,
-        idx : &mut Index) -> TCFResult<TCFData> where I : Iterator<Item = &'a String> {
+        idx : &mut Index) -> CuacResult<CuacData> where I : Iterator<Item = &'a String> {
         match ld.data {
             Some(DataType::String) => {
                 let v = iter.map(|s| idx.idx(&s)).collect();
-                Ok(TCFData::String(v))
+                Ok(CuacData::String(v))
             }
             Some(DataType::Enum(ref enum_vals)) => {
                 let map : HashMap<String, usize> = enum_vals.iter().enumerate().map(|(i, s)| (s.clone(), i)).collect();
                 let mut v = Vec::new();
                 for s in iter {
                     if !map.contains_key(s) {
-                        return Err(TCFError::InvalidEnumValue(s.clone()));
+                        return Err(CuacError::InvalidEnumValue(s.clone()));
                     }
                     v.push(map[s] as u32);
                 }
-                Ok(TCFData::Enum(v))
+                Ok(CuacData::Enum(v))
             }
             Some(DataType::Link) => {
                 let v = iter.map(|s| idx.idx(&s)).collect();
-                Ok(TCFData::String(v))
+                Ok(CuacData::String(v))
             }
             None => {
                 panic!("No data type specified");
@@ -46,7 +46,7 @@ impl TCFData {
 
     pub fn to_vec(&self, index : &Index, ld : &LayerDesc) -> Vec<String> {
         match self {
-            TCFData::String(v) => {
+            CuacData::String(v) => {
                 v.iter().map(|i| match i {
                     IndexResult::String(s) => {
                         index.idx(s);
@@ -55,13 +55,13 @@ impl TCFData {
                     IndexResult::Index(i) => index.str(*i).unwrap()
                 }).collect()
             }
-            TCFData::Enum(v) => {
+            CuacData::Enum(v) => {
                 match ld.data {
                     Some(DataType::Enum(ref enum_vals)) => {
                         v.iter().map(|i| enum_vals[*i as usize].clone()).collect()
                     }
                     _ => {
-                        panic!("LayerDesc data type does not match TCFData type");
+                        panic!("LayerDesc data type does not match CuacData type");
                     }
                 }
             }
@@ -70,28 +70,28 @@ impl TCFData {
 
     pub fn into_bytes<C : StringCompression>(self, compress : &C) -> Vec<u8> {
         match self {
-            TCFData::String(v) => {
+            CuacData::String(v) => {
                 index_results_to_bytes(&v, compress)
             }
-            TCFData::Enum(v) => {
-                TCFIndex::from_vec(&v).into_bytes()
+            CuacData::Enum(v) => {
+                CuacIndex::from_vec(&v).into_bytes()
             }
         }
     }
 
-    pub fn from_bytes<S : StringCompression>(data : &[u8], ld : &LayerDesc, s: &S) -> TCFResult<(TCFData, usize)> {
+    pub fn from_bytes<S : StringCompression>(data : &[u8], ld : &LayerDesc, s: &S) -> CuacResult<(CuacData, usize)> {
         match ld.data {
             Some(DataType::String) => {
                 let (v, len) = bytes_to_index_results(data, s)?;
-                Ok((TCFData::String(v), len))
+                Ok((CuacData::String(v), len))
             }
             Some(DataType::Enum(_)) => {
-                let (v, len) = TCFIndex::from_bytes(data)?;
-                Ok((TCFData::Enum(v.to_vec()), len))
+                let (v, len) = CuacIndex::from_bytes(data)?;
+                Ok((CuacData::Enum(v.to_vec()), len))
             }
             Some(DataType::Link) => {
                 let (v, len) = bytes_to_index_results(data, s)?;
-                Ok((TCFData::String(v), len))
+                Ok((CuacData::String(v), len))
             }
             None => {
                 panic!("No data type specified");
@@ -99,19 +99,19 @@ impl TCFData {
         }
     }
 
-    pub fn from_reader<R: BufRead, S : StringCompression>(input : &mut R, ld : &LayerDesc, s : &S) -> TCFResult<TCFData> {
+    pub fn from_reader<R: BufRead, S : StringCompression>(input : &mut R, ld : &LayerDesc, s : &S) -> CuacResult<CuacData> {
         match ld.data {
             Some(DataType::String) => {
                 let v = reader_to_index_results(input, s)?;
-                Ok(TCFData::String(v))
+                Ok(CuacData::String(v))
             }
             Some(DataType::Enum(_)) => {
-                let v = TCFIndex::from_reader(input)?;
-                Ok(TCFData::Enum(v.to_vec()))
+                let v = CuacIndex::from_reader(input)?;
+                Ok(CuacData::Enum(v.to_vec()))
             }
             Some(DataType::Link) => {
                 let v = reader_to_index_results(input, s)?;
-                Ok(TCFData::String(v))
+                Ok(CuacData::String(v))
             }
             None => {
                 panic!("No data type specified");
@@ -149,7 +149,7 @@ fn index_results_to_bytes<C : StringCompression>(ir : &Vec<IndexResult>, compres
     d2
 }
 
-fn bytes_to_index_results<S : StringCompression>(data : &[u8], s : &S) -> TCFResult<(Vec<IndexResult>, usize)> {
+fn bytes_to_index_results<S : StringCompression>(data : &[u8], s : &S) -> CuacResult<(Vec<IndexResult>, usize)> {
     let mut results = Vec::new();
     let (len, len1) = varbytes_to_u32(&data[0..]);
     let len = len as usize;
@@ -170,7 +170,7 @@ fn bytes_to_index_results<S : StringCompression>(data : &[u8], s : &S) -> TCFRes
     Ok((results, offset))
 }
 
-fn reader_to_index_results<R: BufRead, S : StringCompression>(input : &mut R, s: &S) -> TCFResult<Vec<IndexResult>> {
+fn reader_to_index_results<R: BufRead, S : StringCompression>(input : &mut R, s: &S) -> CuacResult<Vec<IndexResult>> {
     let mut results = Vec::new();
     let len = read_varbytes(input)? as usize;
     let type_index = TypeIndex::from_reader(input, len)?;
@@ -257,9 +257,9 @@ mod tests {
     }
 
     #[test]
-    fn test_tcf_data_round_trip() {
+    fn test_cuac_data_round_trip() {
         let mut index = Index::new();
-        let data = TCFData::from_iter(vec![&"a".to_string(),
+        let data = CuacData::from_iter(vec![&"a".to_string(),
                                            &"a".to_string(),
                                            &"b".to_string(),
                                            &"a".to_string()].into_iter(), 
@@ -267,9 +267,9 @@ mod tests {
                 data: Some(DataType::String),
                 ..LayerDesc::default()
             }, &mut index).unwrap();
-        let c = crate::tcf::string::SmazCompression;
+        let c = crate::cuac::string::SmazCompression;
         let bytes = data.clone().into_bytes(&c);
-        let (data2, _) = TCFData::from_bytes(&bytes, &LayerDesc {
+        let (data2, _) = CuacData::from_bytes(&bytes, &LayerDesc {
             data: Some(DataType::String),
             ..LayerDesc::default()
         }, &c).unwrap();

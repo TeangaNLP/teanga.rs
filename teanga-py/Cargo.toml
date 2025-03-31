@@ -16,7 +16,7 @@ crate-type = ["cdylib"]
 extension-module = ["pyo3/extension-module"]
 
 [dependencies]
-teanga = { path = "../teanga" }
+teanga = { path = "../teanga", features = ["sled"] }
 pyo3 = "0.21.1"
 sled = "0.34.7"
 base64 = "*"

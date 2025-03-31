@@ -38,7 +38,7 @@ pub mod layer_builder;
 pub mod query;
 pub mod serialization;
 pub mod match_condition;
-mod tcf;
+mod cuac;
 
 pub use document::{Document, DocumentContent, DocumentBuilder};
 #[cfg(any(feature = "sled", feature = "fjall", feature = "redb"))]
@@ -47,7 +47,7 @@ pub use layer::{IntoLayer, Layer, LayerDesc, DataType, LayerType, TeangaData};
 pub use layer_builder::build_layer;
 pub use query::Query;
 pub use serialization::{read_json, read_yaml, write_json, write_yaml, read_yaml_with_config, read_json_with_config, read_jsonl, SerializationSettings};
-pub use tcf::{write_tcf, write_tcf_with_config, read_tcf, write_tcf_header, write_tcf_config, write_tcf_doc, doc_content_to_bytes, bytes_to_doc, Index, IndexResult, TCFReadError, TCFWriteError, TCFConfig, StringCompression, StringCompressionError, StringCompressionMethod, NoCompression, SmazCompression, ShocoCompression};
+pub use cuac::{write_cuac, write_cuac_with_config, read_cuac, write_cuac_header, write_cuac_config, write_cuac_doc, doc_content_to_bytes, bytes_to_doc, Index, IndexResult, CuacReadError, CuacWriteError, CuacConfig, StringCompression, StringCompressionError, StringCompressionMethod, NoCompression, SmazCompression, ShocoCompression};
 pub use match_condition::{TextMatchCondition, DataMatchCondition};
 
 /// Trait that defines a corpus according to the Teanga Data Model
@@ -498,11 +498,11 @@ pub enum TeangaError {
     #[error("Teanga model error: {0}")]
     ModelError(String),
     /// Errors in changing an immutable corpus
-    #[error("TCF Corpora cannot be mutated")]
-    TCFMutError,
+    #[error("Cuac Corpora cannot be mutated")]
+    CuacMutError,
     /// Errors readings a file
-    #[error("TCF Read Error: {0}")]
-    TCFReadError(#[from] crate::tcf::TCFError),
+    #[error("Cuac Read Error: {0}")]
+    CuacReadError(#[from] crate::cuac::CuacError),
     /// A document does not exist in the corpus
     #[error("Document not found")]
     DocumentNotFoundError,

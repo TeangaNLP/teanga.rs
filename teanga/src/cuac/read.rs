@@ -6,19 +6,19 @@ use thiserror::Error;
 use crate::{TeangaResult, TeangaError, WriteableCorpus};
 use std::io::{Read, BufRead, BufReader};
 
-use crate::tcf::TCF_VERSION;
-use crate::tcf::string::StringCompression;
-use crate::tcf::string::SupportedStringCompression;
-use crate::tcf::string::ShocoCompression;
-use crate::tcf::string::read_shoco_model;
-use crate::tcf::{TCFResult, TCFError};
-use crate::tcf::index::Index;
-use crate::tcf::layer::{TCFLayer, TCF_EMPTY_LAYER};
+use crate::cuac::CUAC_VERSION;
+use crate::cuac::string::StringCompression;
+use crate::cuac::string::SupportedStringCompression;
+use crate::cuac::string::ShocoCompression;
+use crate::cuac::string::read_shoco_model;
+use crate::cuac::{CuacResult, CuacError};
+use crate::cuac::index::Index;
+use crate::cuac::layer::{CuacLayer, CUAC_EMPTY_LAYER};
 
 fn bytes_to_layer<S : StringCompression>(bytes : &[u8], idx : &mut Index, 
-    layer_desc : &LayerDesc, s : &S) -> TCFResult<(Layer, usize)> {
-    let (tcf, len) = TCFLayer::from_bytes(bytes, 0, layer_desc, s)?;
-    Ok((tcf.to_layer(idx, layer_desc, s), len))
+    layer_desc : &LayerDesc, s : &S) -> CuacResult<(Layer, usize)> {
+    let (cuac, len) = CuacLayer::from_bytes(bytes, 0, layer_desc, s)?;
+    Ok((cuac.to_layer(idx, layer_desc, s), len))
 }
 
 pub enum ReadLayerResult<Layer> {
@@ -28,20 +28,20 @@ pub enum ReadLayerResult<Layer> {
 }
 
 fn read_layer<R : BufRead, S : StringCompression>(bytes : &mut R, 
-    idx : &Index, layer_desc : &LayerDesc, s : &S) -> TCFResult<ReadLayerResult<Layer>> {
-    match TCFLayer::from_reader(bytes, layer_desc, s)? {
-        ReadLayerResult::Layer(tcf) => Ok(ReadLayerResult::Layer(tcf.to_layer(idx, layer_desc, s))),
+    idx : &Index, layer_desc : &LayerDesc, s : &S) -> CuacResult<ReadLayerResult<Layer>> {
+    match CuacLayer::from_reader(bytes, layer_desc, s)? {
+        ReadLayerResult::Layer(cuac) => Ok(ReadLayerResult::Layer(cuac.to_layer(idx, layer_desc, s))),
         ReadLayerResult::Empty => Ok(ReadLayerResult::Empty),
         ReadLayerResult::Eof => Ok(ReadLayerResult::Eof)
     }
 }
 
 
-/// Create a document from its TCF bytes
+/// Create a document from its Cuac bytes
 ///
 /// # Arguments
 ///
-/// * `bytes` - The TCF bytes
+/// * `bytes` - The Cuac bytes
 /// * `offset` - The offset in the bytes
 /// * `meta_keys` - The keys of the layers in the document in the serialization order
 /// * `meta` - The metadata for the document
@@ -58,7 +58,7 @@ pub fn bytes_to_doc<S : StringCompression>(bytes : &[u8], offset : usize,
     let mut layers = Vec::new();
     let mut i = offset;
     for key in meta_keys.iter() {
-        if bytes[i] != TCF_EMPTY_LAYER {
+        if bytes[i] != CUAC_EMPTY_LAYER {
             let (layer, n) = bytes_to_layer(&bytes[i..], 
                 index, meta.get(key).ok_or_else(|| TeangaError::LayerNotFoundError(key.clone()))?, s)?;
             layers.push((key.clone(), layer));
@@ -81,12 +81,12 @@ pub enum ReadDocError {
     IOError(#[from] std::io::Error),
     #[error("Document key error: {0}")]
     DocumentKeyError(String),
-    #[error("TCF error: {0}")]
-    TCFError(#[from] TCFError)
+    #[error("Cuac error: {0}")]
+    CuacError(#[from] CuacError)
 }
 
 
-/// Read a document from a TCF file
+/// Read a document from a Cuac file
 ///
 /// # Arguments
 ///
@@ -99,7 +99,7 @@ pub enum ReadDocError {
 /// # Returns
 ///
 /// A new document object
-pub fn read_tcf_doc<R : BufRead, S : StringCompression>(input : &mut R,
+pub fn read_cuac_doc<R : BufRead, S : StringCompression>(input : &mut R,
     meta : &HashMap<String, LayerDesc>, index : &Index, s : &S) -> Result<Option<Document>, ReadDocError> {
     let mut meta_keys : Vec<String> = meta.keys().cloned().collect();
     meta_keys.sort();
@@ -122,53 +122,53 @@ pub fn read_tcf_doc<R : BufRead, S : StringCompression>(input : &mut R,
 }
 
 
-/// An error for reading a TCF file
+/// An error for reading a Cuac file
 #[derive(Error, Debug)]
-pub enum TCFReadError {
+pub enum CuacReadError {
     #[error("IO error: {0}")]
     IOError(#[from] std::io::Error),
     #[error("Teanga error: {0}")]
     TeangaError(#[from] TeangaError),
     #[error("Ciborium error: {0}")]
     CiboriumError(#[from] ciborium::de::Error<std::io::Error>),
-    #[error("TCF read error: {0}")]
-    TCFError(#[from] ReadDocError),
-    #[error("Not a TCF file")]
-    NotTCFFile,
+    #[error("Cuac read error: {0}")]
+    CuacError(#[from] ReadDocError),
+    #[error("Not a Cuac file")]
+    NotCuacFile,
     #[error("Invalid version ({0} > {1})")]
     InvalidVersion(u16, u16)
 }
 
 
-/// Read a TCF file
+/// Read a Cuac file
 ///
 /// # Arguments
 ///
 /// * `input` - The input stream
 /// * `corpus` - The corpus to read into
-pub fn read_tcf<R: Read, C: WriteableCorpus>(
-    input : R, corpus : &mut C) -> Result<(), TCFReadError> {
+pub fn read_cuac<R: Read, C: WriteableCorpus>(
+    input : R, corpus : &mut C) -> Result<(), CuacReadError> {
     let mut input = BufReader::new(input);
-    let (meta, string_compression) = read_tcf_header(&mut input)?;
+    let (meta, string_compression) = read_cuac_header(&mut input)?;
     corpus.set_meta(meta.clone())
-        .map_err(|e| TCFReadError::TeangaError(e))?;
+        .map_err(|e| CuacReadError::TeangaError(e))?;
     let cache = Index::new();
-    while let Some(doc) = read_tcf_doc(&mut input, &meta, &cache, &string_compression)? {
+    while let Some(doc) = read_cuac_doc(&mut input, &meta, &cache, &string_compression)? {
         corpus.add_doc(doc)?;
     }
     Ok(())
 
 }
 
-pub fn read_tcf_header<R: Read>(
-    input : &mut R) -> Result<(HashMap<String, LayerDesc>, SupportedStringCompression), TCFReadError> {
+pub fn read_cuac_header<R: Read>(
+    input : &mut R) -> Result<(HashMap<String, LayerDesc>, SupportedStringCompression), CuacReadError> {
     let mut format_id_bytes = vec![0u8; 8];
     input.read_exact(format_id_bytes.as_mut_slice())?;
     if format_id_bytes[0..6] != *"TEANGA".as_bytes() {
-        return Err(TCFReadError::NotTCFFile);
+        return Err(CuacReadError::NotCuacFile);
     }
-    if format_id_bytes[6..8] != TCF_VERSION.to_be_bytes() {
-        return Err(TCFReadError::InvalidVersion(u16::from_be_bytes([format_id_bytes[6], format_id_bytes[7]]), TCF_VERSION));
+    if format_id_bytes[6..8] != CUAC_VERSION.to_be_bytes() {
+        return Err(CuacReadError::InvalidVersion(u16::from_be_bytes([format_id_bytes[6], format_id_bytes[7]]), CUAC_VERSION));
     }
     let mut meta_bytes = vec![0u8; 4];
     input.read_exact(meta_bytes.as_mut_slice())?;
@@ -179,14 +179,14 @@ pub fn read_tcf_header<R: Read>(
     let mut string_compression_byte = [0u8; 1];
     input.read_exact(string_compression_byte.as_mut_slice())?;
     let string_compression = match string_compression_byte[0] {
-        0 => crate::tcf::string::SupportedStringCompression::None,
-        1 => crate::tcf::string::SupportedStringCompression::Smaz,
-        2 => crate::tcf::string::SupportedStringCompression::Shoco(ShocoCompression::default()),
+        0 => crate::cuac::string::SupportedStringCompression::None,
+        1 => crate::cuac::string::SupportedStringCompression::Smaz,
+        2 => crate::cuac::string::SupportedStringCompression::Shoco(ShocoCompression::default()),
         3 => {
             let model = read_shoco_model(input)?;
-            crate::tcf::string::SupportedStringCompression::Shoco(model)
+            crate::cuac::string::SupportedStringCompression::Shoco(model)
         }
-        _ => return Err(TCFReadError::TCFError(ReadDocError::TCFError(TCFError::InvalidByte)))
+        _ => return Err(CuacReadError::CuacError(ReadDocError::CuacError(CuacError::InvalidByte)))
     };
     Ok((meta, string_compression))
 }
@@ -195,7 +195,7 @@ pub fn read_tcf_header<R: Read>(
 mod tests {
     use super::*;
     use crate::{SimpleCorpus, build_layer, LayerType, DataType, Corpus, IntoLayer};
-    use crate::tcf::write::write_tcf;
+    use crate::cuac::write::write_cuac;
     use crate::ReadableCorpus;
 
     #[test]
@@ -222,9 +222,9 @@ mod tests {
         let mut doc = corpus.get_doc_by_id(&doc_id).unwrap();
         doc.set("url", Layer::LS(vec!["https://klyq.com/beginners-bbq-class-taking-place-in-missoula/".to_string()]));
         let mut data : Vec<u8> = Vec::new();
-        write_tcf(&mut data, &corpus).unwrap();
+        write_cuac(&mut data, &corpus).unwrap();
         let mut corpus2 = SimpleCorpus::new();
-        read_tcf(&mut data.as_slice(), &mut corpus2).unwrap();
+        read_cuac(&mut data.as_slice(), &mut corpus2).unwrap();
         assert_eq!(corpus, corpus2);
     }
 
@@ -236,10 +236,10 @@ mod tests {
             "text".to_string(),
             "Test string".to_string())]).unwrap();
         let mut data : Vec<u8> = Vec::new();
-        write_tcf(&mut data, &corpus).unwrap();
+        write_cuac(&mut data, &corpus).unwrap();
         assert_eq!(data, vec![84, 69, 65, 78, 71, 65, 0, 1, 0, 0, 0, 23, 161, 100, 116, 101, 120, 116, 161, 100, 116, 121, 112, 101, 106, 99, 104, 97, 114, 97, 99, 116, 101, 114, 115, 1, 0, 0, 7, 254, 84, 54, 35, 77, 114, 84]);
         let mut corpus2 = SimpleCorpus::new();
-        read_tcf(&mut data.as_slice(), &mut corpus2).unwrap();
+        read_cuac(&mut data.as_slice(), &mut corpus2).unwrap();
     }
 
     #[test]
@@ -291,9 +291,9 @@ mod tests {
              ("lemma".to_string(),
               vec!["beginner", "BBQ", "Class", "Taking", "Place", "in", "Missoula", "!", "\n", "do", "you", "want", "to", "get", "well", "at", "make", "delicious", "BBQ", "?", "you", "will", "have", "the", "opportunity", ",", "put", "this", "on", "your", "calendar", "now", ".", "Thursday", ",", "September", "22nd", "join", "World", "Class", "BBQ", "Champion", ",", "Tony", "Balay", "from", "Lonestar", "Smoke", "Rangers", ".", "he", "will", "be", "teach", "a", "beginner", "level", "class", "for", "everyone", "who", "want", "to", "get", "well", "with", "their", "culinary", "skill", ".", "\n", "he", "will", "teach", "you", "everything", "you", "need", "to", "know", "to", "compete", "in", "a", "KCBS", "BBQ", "competition", ",", "include", "technique", ",", "recipe", ",", "timeline", ",", "meat", "selection", "and", "trimming", ",", "plus", "smoker", "and", "fire", "information", ".", "\n", "the", "cost", "to", "be", "in", "the", "class", "be", "$", "35", "per", "person", ",", "and", "for", "spectator", "it", "be", "free", ".", "include", "in", "the", "cost", "will", "be", "either", "a", "t", "-", "shirt", "or", "apron", "and", "you", "will", "be", "taste", "sample", "of", "each", "meat", "that", "be", "prepare", "."].into_layer(&corpus.get_meta()["lemma"]).unwrap())]).unwrap();
         let mut data : Vec<u8> = Vec::new();
-        write_tcf(&mut data, &corpus).unwrap();
+        write_cuac(&mut data, &corpus).unwrap();
         let mut corpus2 = SimpleCorpus::new();
-        read_tcf(&mut data.as_slice(), &mut corpus2).unwrap();
+        read_cuac(&mut data.as_slice(), &mut corpus2).unwrap();
         for (docid1, docid2) in corpus.get_docs().iter().zip(corpus2.get_docs().iter()) {
             let doc1 = corpus.get_doc_by_id(docid1).unwrap();
             let doc2 = corpus.get_doc_by_id(docid2).unwrap();

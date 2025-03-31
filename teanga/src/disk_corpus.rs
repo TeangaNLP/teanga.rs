@@ -5,12 +5,12 @@
 //! metadata for the corpus and the documents in the corpus.
 use std::collections::HashMap;
 use crate::*;
-use crate::tcf::SupportedStringCompression;
-use crate::tcf::read_tcf_header;
-use crate::tcf::read_tcf_doc;
-use crate::tcf::write_tcf_header_compression;
-use crate::tcf::write_tcf_doc;
-use crate::tcf::Index;
+use crate::cuac::SupportedStringCompression;
+use crate::cuac::read_cuac_header;
+use crate::cuac::read_cuac_doc;
+use crate::cuac::write_cuac_header_compression;
+use crate::cuac::write_cuac_doc;
+use crate::cuac::Index;
 #[cfg(feature = "fjall")]
 use fjall::{Config, PartitionCreateOptions, PartitionHandle};
 #[cfg(feature = "redb")]
@@ -108,7 +108,7 @@ impl <D: DBImpl> DiskCorpus<D> {
     ///
     pub fn with_db(db : D) -> TeangaResult<DiskCorpus<D>> {
         let (meta, compression_model) = if let Some(meta_bytes) = db.get(META_BYTES.to_vec())? {
-            read_tcf_header::<&[u8]>(&mut meta_bytes.as_ref())
+            read_cuac_header::<&[u8]>(&mut meta_bytes.as_ref())
                 .map_err(|e| TeangaError::ModelError(e.to_string()))?
         } else {
             (HashMap::new(), SupportedStringCompression::Smaz)
@@ -133,7 +133,7 @@ impl <D: DBImpl> DiskCorpus<D> {
 
     fn insert(&mut self, id : String, doc : Document) -> TeangaResult<()> {
         let mut data = Vec::new();
-        write_tcf_doc(&mut data, doc.clone(), &mut self.index, &self.meta, &self.compression_model)
+        write_cuac_doc(&mut data, doc.clone(), &mut self.index, &self.meta, &self.compression_model)
             .map_err(|e| TeangaError::ModelError(e.to_string()))?;
         let mut id_bytes = Vec::new();
         id_bytes.push(DOCUMENT_PREFIX);
@@ -157,7 +157,7 @@ impl <D: DBImpl> DiskCorpus<D> {
         id_bytes.extend(id.as_bytes());
         match self.db.get(id_bytes)? {
             Some(bytes) => {
-                let doc = read_tcf_doc(&mut bytes.as_ref(), &self.meta, 
+                let doc = read_cuac_doc(&mut bytes.as_ref(), &self.meta, 
                         &self.index.freeze(), &self.compression_model)
                     .map_err(|e| TeangaError::ModelError(e.to_string()))?;
                 Ok(doc)
@@ -168,7 +168,7 @@ impl <D: DBImpl> DiskCorpus<D> {
 
     pub fn commit(&mut self) -> TeangaResult<()> {
         let mut meta_bytes = Vec::new();
-        write_tcf_header_compression(&mut meta_bytes, &self.meta, &self.compression_model)
+        write_cuac_header_compression(&mut meta_bytes, &self.meta, &self.compression_model)
             .map_err(|e| TeangaError::ModelError(e.to_string()))?;
         self.db.insert(META_BYTES.to_vec(), meta_bytes)?;
         self.db.insert(ORDER_BYTES.to_vec(), to_stdvec(&self.order)?)?;

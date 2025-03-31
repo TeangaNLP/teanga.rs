@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::thread;
 use teanga::DiskCorpus;
-use teanga::TCFConfig;
+use teanga::CuacConfig;
 use teanga::read_json;
 use teanga::read_jsonl;
 use teanga::read_yaml;
@@ -52,7 +52,7 @@ enum Format {
     JSON,
     JSONL,
     YAML,
-    TCF,
+    Cuac,
     Guess
 }
 
@@ -75,8 +75,8 @@ impl Format {
                     Format::JSONL
                 } else if file.ends_with(".yaml") || file.ends_with(".yml") || file.ends_with(".yaml.gz") {
                     Format::YAML
-                } else if file.ends_with(".tcf") || file.ends_with(".tcf.gz") {
-                    Format::TCF
+                } else if file.ends_with(".cuac") || file.ends_with(".cuac.gz")  || file.ends_with(".tcf") || file.ends_with(".tcf.gz") {
+                    Format::Cuac
                 } else {
                     Format::YAML
                 }
@@ -109,13 +109,13 @@ struct ConvertCommand {
     #[arg(short,long)]
     meta_file: Option<String>,
 
-    /// The string compression method (for TCF output only). It is best to use
+    /// The string compression method (for Cuac output only). It is best to use
     /// `smaz` for English corpora and `generate` for other languages.
     #[arg(long)]
     #[clap(default_value="smaz")]
     compression: StringCompression,
 
-    /// The number of bytes to use for generate string compression (for TCF output only, only used if compression is set to generate)
+    /// The number of bytes to use for generate string compression (for Cuac output only, only used if compression is set to generate)
     #[arg(long)]
     #[clap(default_value="1000000")]
     compression_bytes: usize,
@@ -196,7 +196,7 @@ impl ConvertCommand {
                     if command.meta_file.is_none() {
                         panic!("Meta file is required for JSONL");
                     }
-                    if command.output_format.guess(&command.output) == Format::TCF {
+                    if command.output_format.guess(&command.output) == Format::Cuac {
                     } else {
                         teanga::serialization::read_jsonl(&mut input, &mut corpus)
                             .map_err(|e| format!("Failed to read JSONL: {}", e)).unwrap();
@@ -206,9 +206,9 @@ impl ConvertCommand {
                     teanga::serialization::read_yaml_with_config(&mut input, &mut corpus, settings)
                         .map_err(|e| format!("Failed to read YAML: {}", e)).unwrap();
                     }
-                Format::TCF => {
-                    teanga::read_tcf(&mut input, &mut corpus)
-                        .map_err(|e| format!("Failed to read TCF: {}", e)).unwrap();
+                Format::Cuac => {
+                    teanga::read_cuac(&mut input, &mut corpus)
+                        .map_err(|e| format!("Failed to read Cuac: {}", e)).unwrap();
                     }
                 Format::Guess => panic!("unreachable")
             };
@@ -236,16 +236,16 @@ impl ConvertCommand {
                     teanga::serialization::write_yaml(&mut output, &rx_corpus)
                         .map_err(|e| format!("Failed to write YAML: {}", e)).unwrap();
                     }
-                Format::TCF => {
+                Format::Cuac => {
                     let config = match command.compression {
-                        StringCompression::None => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::None),
-                        StringCompression::Smaz => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::Smaz),
-                        StringCompression::Shoco => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::ShocoDefault),
-                        StringCompression::Generate => TCFConfig::new().with_string_compression(teanga::StringCompressionMethod::GenerateShocoModel(command.compression_bytes)),
+                        StringCompression::None => CuacConfig::new().with_string_compression(teanga::StringCompressionMethod::None),
+                        StringCompression::Smaz => CuacConfig::new().with_string_compression(teanga::StringCompressionMethod::Smaz),
+                        StringCompression::Shoco => CuacConfig::new().with_string_compression(teanga::StringCompressionMethod::ShocoDefault),
+                        StringCompression::Generate => CuacConfig::new().with_string_compression(teanga::StringCompressionMethod::GenerateShocoModel(command.compression_bytes)),
                     };
                     let rx_corpus = rx_corpus.await_meta();
-                    teanga::write_tcf_with_config(&mut output, &rx_corpus, &config)
-                        .map_err(|e| format!("Failed to write TCF: {}", e)).unwrap();
+                    teanga::write_cuac_with_config(&mut output, &rx_corpus, &config)
+                        .map_err(|e| format!("Failed to write Cuac: {}", e)).unwrap();
                     }
                 Format::Guess => panic!("unreachable")
             }
