@@ -32,7 +32,7 @@ impl CuacPyCorpus {
             meta: HashMap::new(),
             meta_keys: Vec::new(),
             order: Vec::new(),
-            data: PyByteArray::new_bound(py, &[0u8; 0]).into(),
+            data: PyByteArray::new(py, &[0u8; 0]).into(),
             offsets: HashMap::new(),
             index : CuacPyIndex::new()
         })

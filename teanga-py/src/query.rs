@@ -132,8 +132,8 @@ fn convert_query(query : HashMap<String, QueryValue>) -> PyResult<Query> {
     }
 }
 
-impl FromPyObject<'_> for PyQuery {
-    fn extract(v: &PyAny) -> PyResult<Self> {
+impl <'py> FromPyObject<'py> for PyQuery {
+    fn extract_bound(v: &Bound<'py, PyAny>) -> PyResult<Self> {
         let mut query = v.extract::<HashMap<String, QueryValue>>()?;
         if query.len() == 1 {
             let key = query.keys().next().unwrap();

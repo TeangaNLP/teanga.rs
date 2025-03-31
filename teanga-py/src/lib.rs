@@ -215,15 +215,19 @@ fn val_to_pyval(val: Value) -> PyValue {
     }
 }
 
-impl IntoPy<PyObject> for PyValue {
-    fn into_py(self, py: Python) -> PyObject {
+impl<'py> IntoPyObject<'py> for PyValue {
+    type Target = PyAny; 
+    type Output = Bound<'py, Self::Target>; 
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         match self {
-            PyValue::Bool(val) => val.into_py(py),
-            PyValue::Int(val) => val.into_py(py),
-            PyValue::Float(val) => val.into_py(py),
-            PyValue::String(val) => val.into_py(py),
-            PyValue::Array(val) => val.into_py(py),
-            PyValue::Object(val) => val.into_py(py)
+            PyValue::Bool(val) => val.into_bound_py_any(py),
+            PyValue::Int(val) => val.into_bound_py_any(py),
+            PyValue::Float(val) => val.into_bound_py_any(py),
+            PyValue::String(val) => val.into_bound_py_any(py),
+            PyValue::Array(val) => val.into_bound_py_any(py),
+            PyValue::Object(val) => val.into_bound_py_any(py)
         }
     }
 }
@@ -231,18 +235,22 @@ impl IntoPy<PyObject> for PyValue {
 #[derive(Debug,Clone,PartialEq)]
 pub struct PyRawLayer(Layer);
 
-impl IntoPy<PyObject> for PyRawLayer {
-    fn into_py(self, py: Python) -> PyObject {
+impl<'py> IntoPyObject<'py> for PyRawLayer {
+    type Target = PyAny;
+    type Output = Bound<'py, Self::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         match self.0 {
-            Layer::Characters(val) => val.into_py(py),
-            Layer::L1(val) => val.into_py(py),
-            Layer::L2(val) => val.into_py(py),
-            Layer::L3(val) => val.into_py(py),
-            Layer::LS(val) => val.into_py(py),
-            Layer::L1S(val) => val.into_py(py),
-            Layer::L2S(val) => val.into_py(py),
-            Layer::L3S(val) => val.into_py(py),
-            Layer::MetaLayer(val) => val.map(|v| val_to_pyval(v)).into_py(py),
+            Layer::Characters(val) => val.into_bound_py_any(py),
+            Layer::L1(val) => val.into_bound_py_any(py),
+            Layer::L2(val) => val.into_bound_py_any(py),
+            Layer::L3(val) => val.into_bound_py_any(py),
+            Layer::LS(val) => val.into_bound_py_any(py),
+            Layer::L1S(val) => val.into_bound_py_any(py),
+            Layer::L2S(val) => val.into_bound_py_any(py),
+            Layer::L3S(val) => val.into_bound_py_any(py),
+            Layer::MetaLayer(val) => val.map(|v| val_to_pyval(v)).into_bound_py_any(py),
         }
     }
 }
@@ -260,32 +268,58 @@ impl IntoLayer for PyRawLayer {
     }
 }
 
-impl FromPyObject<'_> for PyRawLayer {
-    fn extract(v: &PyAny) -> PyResult<Self> {
-        if let Ok(layer) = v.extract::<String>() {
+impl <'py> FromPyObject<'py> for PyRawLayer {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<PyRawLayer> {
+        if let Ok(layer) = ob.extract::<String>() {
             Ok(PyRawLayer(Layer::Characters(layer)))
-        } else if let Ok(layer) = v.extract::<Vec<u32>>() {
+        } else if let Ok(layer) = ob.extract::<Vec<u32>>() {
             Ok(PyRawLayer(Layer::L1(layer)))
-        } else if let Ok(layer) = v.extract::<Vec<(u32, u32)>>() {
+        } else if let Ok(layer) = ob.extract::<Vec<(u32, u32)>>() {
             Ok(PyRawLayer(Layer::L2(layer)))
-        } else if let Ok(layer) = v.extract::<Vec<(u32, u32, u32)>>() {
+        } else if let Ok(layer) = ob.extract::<Vec<(u32, u32, u32)>>() {
             Ok(PyRawLayer(Layer::L3(layer)))
-        } else if let Ok(layer) = v.extract::<Vec<String>>() {
+        } else if let Ok(layer) = ob.extract::<Vec<String>>() {
             Ok(PyRawLayer(Layer::LS(layer)))
-        } else if let Ok(layer) = v.extract::<Vec<(u32, String)>>() {
+        } else if let Ok(layer) = ob.extract::<Vec<(u32, String)>>() {
             Ok(PyRawLayer(Layer::L1S(layer)))
-        } else if let Ok(layer) = v.extract::<Vec<(u32, u32, String)>>() {
+        } else if let Ok(layer) = ob.extract::<Vec<(u32, u32, String)>>() {
             Ok(PyRawLayer(Layer::L2S(layer)))
-        } else if let Ok(layer) = v.extract::<Vec<Vec<U32OrString>>>() {
+        } else if let Ok(layer) = ob.extract::<Vec<Vec<U32OrString>>>() {
             Ok(PyRawLayer(vecus2rawlayer(layer).map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e))?))
-        } else if let Ok(layer) = v.extract::<PyValue>() {
+        } else if let Ok(layer) = ob.extract::<PyValue>() {
             Ok(PyRawLayer(Layer::MetaLayer(Some(layer.val()))))
         } else {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                format!("Unknown layer type {}", v.extract::<String>()?)))
+                format!("Unknown layer type {}", ob.extract::<String>()?)))
         }
     }
 }
+//impl FromPyObject<'_> for PyRawLayer {
+//    fn extract(v: &PyAny) -> PyResult<Self> {
+//        if let Ok(layer) = v.extract::<String>() {
+//            Ok(PyRawLayer(Layer::Characters(layer)))
+//        } else if let Ok(layer) = v.extract::<PyCell<Vec<u32>>>() {
+//            Ok(PyRawLayer(Layer::L1(layer)))
+//        } else if let Ok(layer) = v.extract::<Vec<(u32, u32)>>() {
+//            Ok(PyRawLayer(Layer::L2(layer)))
+//        } else if let Ok(layer) = v.extract::<Vec<(u32, u32, u32)>>() {
+//            Ok(PyRawLayer(Layer::L3(layer)))
+//        } else if let Ok(layer) = v.extract::<Vec<String>>() {
+//            Ok(PyRawLayer(Layer::LS(layer)))
+//        } else if let Ok(layer) = v.extract::<Vec<(u32, String)>>() {
+//            Ok(PyRawLayer(Layer::L1S(layer)))
+//        } else if let Ok(layer) = v.extract::<Vec<(u32, u32, String)>>() {
+//            Ok(PyRawLayer(Layer::L2S(layer)))
+//        } else if let Ok(layer) = v.extract::<Vec<Vec<U32OrString>>>() {
+//            Ok(PyRawLayer(vecus2rawlayer(layer).map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e))?))
+//        } else if let Ok(layer) = v.extract::<PyValue>() {
+//            Ok(PyRawLayer(Layer::MetaLayer(Some(layer.val()))))
+//        } else {
+//            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+//                format!("Unknown layer type {}", v.extract::<String>()?)))
+//        }
+//    }
+//}
 
 #[derive(Debug,Clone,PartialEq, FromPyObject)]
 pub enum U32OrString {
@@ -527,8 +561,8 @@ fn vecus2vecu32u32u32str(vs: Vec<Vec<U32OrString>>) -> Result<Vec<(u32, u32, u32
 #[derive(Debug,Clone,PartialEq)]
 pub struct PyLayerType(LayerType);
 
-impl FromPyObject<'_> for PyLayerType {
-    fn extract(ob: &PyAny) -> PyResult<Self> {
+impl <'py> FromPyObject<'py> for PyLayerType {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<PyLayerType> {
         match ob.extract::<String>()?.to_lowercase().as_str() {
             "characters" => Ok(PyLayerType(LayerType::characters)),
             "seq" => Ok(PyLayerType(LayerType::seq)),
@@ -541,15 +575,22 @@ impl FromPyObject<'_> for PyLayerType {
     }
 }
 
-impl IntoPy<PyObject> for PyLayerType {
-    fn into_py(self, py: Python) -> PyObject {
-        match self.0 {
-            LayerType::characters => "characters".into_py(py),
-            LayerType::seq => "seq".into_py(py),
-            LayerType::div => "div".into_py(py),
-            LayerType::element => "element".into_py(py),
-            LayerType::span => "span".into_py(py)
-        }
+use pyo3::IntoPyObjectExt;
+
+impl<'py> IntoPyObject<'py> for PyLayerType {
+    type Target = PyAny; // the Python type
+    type Output = Bound<'py, Self::Target>; // in most cases this will be `Bound`
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let name = match self.0 {
+            LayerType::characters => "characters",
+            LayerType::seq => "seq",
+            LayerType::div => "div",
+            LayerType::element => "element",
+            LayerType::span => "span"
+        };
+        name.into_bound_py_any(py)
     }
 }
 
@@ -557,8 +598,8 @@ impl IntoPy<PyObject> for PyLayerType {
 #[derive(Debug,Clone,PartialEq)]
 pub struct PyDataType(DataType);
 
-impl FromPyObject<'_> for PyDataType {
-    fn extract(ob: &PyAny) -> PyResult<Self> {
+impl <'py> FromPyObject<'py> for PyDataType {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<PyDataType> {
         match ob.extract::<Vec<String>>() {
             Ok(vals) => return Ok(PyDataType(DataType::Enum(vals))),
             Err(_) => ()
@@ -572,12 +613,16 @@ impl FromPyObject<'_> for PyDataType {
     }
 }
 
-impl IntoPy<PyObject> for PyDataType {
-    fn into_py(self, py: Python) -> PyObject {
+impl<'py> IntoPyObject<'py> for PyDataType {
+    type Target = PyAny;
+    type Output = Bound<'py, Self::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         match self.0 {
-            DataType::String => "string".into_py(py),
-            DataType::Enum(v) => v.into_py(py),
-            DataType::Link => "link".into_py(py),
+            DataType::String => "string".into_bound_py_any(py),
+            DataType::Enum(v) => v.into_bound_py_any(py),
+            DataType::Link => "link".into_bound_py_any(py),
         }
     }
 }
