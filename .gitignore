@@ -199,3 +199,5 @@ brown.yaml
 europarl-v7_all_lang_pairs.teanga.json
 tmp.tcf
 tmp.yaml
+flamegraph.svg
+perf.data

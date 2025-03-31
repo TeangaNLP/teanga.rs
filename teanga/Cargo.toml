@@ -27,7 +27,7 @@ serde_json = "1.0.107"
 serde_yml = "0.0.12"
 thiserror = "1.0.24"
 ciborium = "0.2.1"
-smaz = "0.1.0"
+smaz = { git = "https://github.com/jmccrae/rust-smaz", version = "0.1.0" }
 lru = "0.12.3"
 regex = "1.10.5"
 fjall = { version = "2.4.1", optional = true }
