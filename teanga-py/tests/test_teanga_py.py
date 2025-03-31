@@ -38,8 +38,8 @@ def test_docs():
     corpus = Corpus(db="tmp.db", new=True)
     corpus.add_layer_meta("text")
     _doc = corpus.add_doc("This is a document.")
-    assert (str(list(corpus.docs)) == "[('Kjco', Document('Kjco', " +
-    "{'text': CharacterLayer('This is a document.')}))]")
+    assert (str(list(corpus.docs)) == "[Document('Kjco', " +
+    "{'text': CharacterLayer('This is a document.')})]")
  
 def test_doc_by_id():
     corpus = Corpus(db="tmp.db", new=True)
@@ -89,11 +89,11 @@ def test_document_setitem():
     doc["pos"] = ["DT", "VBZ", "DT", "NN", "."]
     assert (str(doc) ==
         "Document('Kjco', {'text': CharacterLayer('This is a document.'), \
-'words': SpanLayer([(0, 4), (5, 7), (8, 9), (10, 18), (18, 19)]), \
+'words': SpanLayer([[0, 4], [5, 7], [8, 9], [10, 18], [18, 19]]), \
 'pos': SeqLayer(['DT', 'VBZ', 'DT', 'NN', '.'])})")
     assert (str(corpus.doc_by_id("Kjco")) ==
         "Document('Kjco', {'text': CharacterLayer('This is a document.'), \
-'words': SpanLayer([(0, 4), (5, 7), (8, 9), (10, 18), (18, 19)]), \
+'words': SpanLayer([[0, 4], [5, 7], [8, 9], [10, 18], [18, 19]]), \
 'pos': SeqLayer(['DT', 'VBZ', 'DT', 'NN', '.'])})")
 
 def test_add_layers():
@@ -181,7 +181,7 @@ def test_read_yaml_str2():
     "  author:\n    type: characters\nwiDv:\n   text: This is a document.\n"
     "   author: John Doe\n", "tmp2.db")
 
-    for _, doc in corpus.docs:
+    for doc in corpus.docs:
         assert(doc.text.text[0] == "This is a document.")
         assert(doc.author.text[0] == "John Doe")
 
@@ -190,7 +190,7 @@ def test_search():
     corpus.add_layer_meta("text")
     corpus.add_layer_meta("words", layer_type="span", base="text")
     corpus.add_layer_meta("pos", layer_type="seq", base="words",
-                           data=["NOUN", "VERB", "ADJ"])
+                           data=["NOUN", "VERB", "ADJ", "ADV"])
     corpus.add_layer_meta("lemma", layer_type="seq", base="words",
                            data="string")
     doc = corpus.add_doc("Colorless green ideas sleep furiously.")
