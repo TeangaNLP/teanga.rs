@@ -39,14 +39,14 @@ def test_docs():
     corpus.add_layer_meta("text")
     _doc = corpus.add_doc("This is a document.")
     assert (str(list(corpus.docs)) == "[Document('Kjco', " +
-    "{'text': CharacterLayer('This is a document.')})]")
+    "{'text': 'This is a document.'})]")
  
 def test_doc_by_id():
     corpus = Corpus(db="tmp.db", new=True)
     corpus.add_layer_meta("text")
     _doc = corpus.add_doc("This is a document.")
     assert (str(corpus.doc_by_id("Kjco")) == 
-    "Document('Kjco', {'text': CharacterLayer('This is a document.')})")
+    "Document('Kjco', {'text': 'This is a document.'})")
 
 def test_meta():
     corpus = Corpus(db="tmp.db", new=True)
@@ -88,11 +88,11 @@ def test_document_setitem():
     doc["words"] = [(0,4), (5,7), (8,9), (10,18), (18,19)]
     doc["pos"] = ["DT", "VBZ", "DT", "NN", "."]
     assert (str(doc) ==
-        "Document('Kjco', {'text': CharacterLayer('This is a document.'), \
+        "Document('Kjco', {'text': 'This is a document.', \
 'words': SpanLayer([[0, 4], [5, 7], [8, 9], [10, 18], [18, 19]]), \
 'pos': SeqLayer(['DT', 'VBZ', 'DT', 'NN', '.'])})")
     assert (str(corpus.doc_by_id("Kjco")) ==
-        "Document('Kjco', {'text': CharacterLayer('This is a document.'), \
+        "Document('Kjco', {'text': 'This is a document.', \
 'words': SpanLayer([[0, 4], [5, 7], [8, 9], [10, 18], [18, 19]]), \
 'pos': SeqLayer(['DT', 'VBZ', 'DT', 'NN', '.'])})")
 
