@@ -10,7 +10,7 @@
 //!   .layer_type(LayerType::span)
 //!   .add();
 //! ```
-use crate::{Corpus, DocumentContent, IntoLayer, Value, DataType, Layer, LayerType, TeangaResult};
+use crate::{Corpus, Value, DataType, Layer, LayerType, TeangaResult};
 use std::collections::HashMap;
 
 /// Build a layer in a corpus
@@ -23,7 +23,7 @@ use std::collections::HashMap;
 /// # Returns
 ///
 /// A builder object for the layer
-pub fn build_layer<'a, LayerStorage : IntoLayer, Content : DocumentContent<LayerStorage>, ICorpus : Corpus<LayerStorage=LayerStorage,Content=Content>>(corpus :&'a mut ICorpus, name: &str) -> LayerBuilderImpl<'a, LayerStorage, Content, ICorpus> {
+pub fn build_layer<'a, ICorpus : Corpus>(corpus :&'a mut ICorpus, name: &str) -> LayerBuilderImpl<'a, ICorpus> {
     LayerBuilderImpl {
         corpus,
         name: name.to_string(),
@@ -38,7 +38,7 @@ pub fn build_layer<'a, LayerStorage : IntoLayer, Content : DocumentContent<Layer
 }
 
 /// A layer metadata builder
-pub struct LayerBuilderImpl<'a, LayerStorage : IntoLayer, Content : DocumentContent<LayerStorage>, ICorpus : Corpus<LayerStorage=LayerStorage,Content=Content>> {
+pub struct LayerBuilderImpl<'a, ICorpus : Corpus> {
     corpus: &'a mut ICorpus,
     name: String,
     layer_type: LayerType,
@@ -50,7 +50,7 @@ pub struct LayerBuilderImpl<'a, LayerStorage : IntoLayer, Content : DocumentCont
     meta: HashMap<String, Value>
 }
 
-impl<'a, LayerStorage : IntoLayer, Content : DocumentContent<LayerStorage>, ICorpus : Corpus<LayerStorage=LayerStorage,Content=Content>> LayerBuilderImpl<'a, LayerStorage, Content, ICorpus> {
+impl<'a, ICorpus : Corpus> LayerBuilderImpl<'a, ICorpus> {
     /// Commit the layer metadata to the corpus
     pub fn add(self) -> TeangaResult<()> {
         self.corpus.add_layer_meta(

@@ -52,11 +52,6 @@ pub use match_condition::{TextMatchCondition, DataMatchCondition};
 
 /// Trait that defines a corpus according to the Teanga Data Model
 pub trait Corpus : WriteableCorpus + ReadableCorpus {
-    /// The type of the layer storage
-    type LayerStorage : IntoLayer;
-    /// The type of the content
-    type Content : DocumentContent<Self::LayerStorage>;
-
     /// Add a meta layer to the corpus
     ///
     /// # Arguments
@@ -83,7 +78,7 @@ pub trait Corpus : WriteableCorpus + ReadableCorpus {
     /// # Returns
     ///
     /// A builder object
-    fn build_layer(&mut self, name: &str) -> crate::layer_builder::LayerBuilderImpl<Self::LayerStorage, Self::Content, Self> where Self: Sized {
+    fn build_layer(&mut self, name: &str) -> crate::layer_builder::LayerBuilderImpl<Self> where Self: Sized {
         build_layer(self, name)
     }
     /// Build a document using a builder
@@ -262,9 +257,6 @@ impl SimpleCorpus {
 }
 
 impl Corpus for SimpleCorpus {
-    type LayerStorage = Layer;
-    type Content = Document;
-
     fn add_layer_meta(&mut self, name: String, layer_type: LayerType, 
         base: Option<String>, data: Option<DataType>, link_types: Option<Vec<String>>, 
         target: Option<String>, default: Option<Layer>,

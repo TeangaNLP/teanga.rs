@@ -180,9 +180,6 @@ impl <D: DBImpl> DiskCorpus<D> {
 
 
 impl <DB : DBImpl> Corpus for DiskCorpus<DB> {
-    type LayerStorage = Layer;
-    type Content = Document;
-
    fn add_layer_meta(&mut self, name: String, layer_type: LayerType, 
         base: Option<String>, data: Option<DataType>, link_types: Option<Vec<String>>, 
         target: Option<String>, default: Option<Layer>,
