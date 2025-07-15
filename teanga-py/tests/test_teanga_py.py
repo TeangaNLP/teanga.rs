@@ -12,51 +12,51 @@ def test_teangadb_installed():
     teangadb.Corpus("tmp.db")
 
 def test_create_corpus():
-    corpus = Corpus(db="tmp.db", new=True)
+    corpus = Corpus(db="<memory>", new=True)
     corpus.add_layer_meta("text")
     print(corpus.meta["text"].base)
     _doc = corpus.add_doc("This is a document.")
 
 
 def test_add_doc():
-    corpus = Corpus(db="tmp.db", new=True)
+    corpus = Corpus(db="<memory>", new=True)
     corpus.add_layer_meta("text")
     _doc = corpus.add_doc("This is a document.")
 
-    corpus = Corpus(db="tmp.db", new=True)
+    corpus = Corpus(db="<memory>", new=True)
     corpus.add_layer_meta("en", layer_type="characters")
     corpus.add_layer_meta("nl", layer_type="characters")
     _doc = corpus.add_doc(en="This is a document.", nl="Dit is een document.")
 
 def test_doc_ids():
-    corpus = Corpus(db="tmp.db", new=True)
+    corpus = Corpus(db="<memory>", new=True)
     corpus.add_layer_meta("text")
     _doc = corpus.add_doc("This is a document.")
     assert corpus.doc_ids == ['Kjco']
  
 def test_docs():
-    corpus = Corpus(db="tmp.db", new=True)
+    corpus = Corpus(db="<memory>", new=True)
     corpus.add_layer_meta("text")
     _doc = corpus.add_doc("This is a document.")
     assert (str(list(corpus.docs)) == "[Document('Kjco', " +
     "{'text': 'This is a document.'})]")
  
 def test_doc_by_id():
-    corpus = Corpus(db="tmp.db", new=True)
+    corpus = Corpus(db="<memory>", new=True)
     corpus.add_layer_meta("text")
     _doc = corpus.add_doc("This is a document.")
     assert (str(corpus.doc_by_id("Kjco")) == 
     "Document('Kjco', {'text': 'This is a document.'})")
 
 def test_meta():
-    corpus = Corpus(db="tmp.db", new=True)
+    corpus = Corpus(db="<memory>", new=True)
     corpus.add_layer_meta("text")
     assert (str(corpus.meta) ==
         "{'text': LayerDesc(layer_type='characters', base=None, data=None, " +
             "link_types=None, target=None, default=None, meta={})}")
  
 def test_to_yaml_str():
-    corpus = Corpus(db="tmp.db", new=True)
+    corpus = Corpus(db="<memory>", new=True)
     corpus.add_layer_meta("text")
     _doc = corpus.add_doc("This is a document.")
     assert (corpus.to_yaml_str() ==
@@ -64,7 +64,7 @@ def test_to_yaml_str():
 Kjco:\n  text: This is a document.\n')
 
 def test_to_json_str():
-    corpus = Corpus(db="tmp.db", new=True)
+    corpus = Corpus(db="<memory>", new=True)
     corpus.add_layer_meta("text")
     _doc = corpus.add_doc("This is a document.")
     assert (corpus.to_json_str() ==
@@ -73,14 +73,14 @@ def test_to_json_str():
 
 def test_read_json_str():
     read_json_str('{"_meta": {"text": {"type": \
-"characters"}},"Kjco": {"text": "This is a document."}}', "tmp.db")
+"characters"}},"Kjco": {"text": "This is a document."}}', "<memory>")
 
 def test_read_yaml_str():
     read_yaml_str("_meta:\n  text:\n    type: characters\n\
-Kjco:\n   text: This is a document.\n", "tmp.db")
+Kjco:\n   text: This is a document.\n", "<memory>")
  
 def test_document_setitem():
-    corpus = Corpus(db="tmp.db", new=True)
+    corpus = Corpus(db="<memory>", new=True)
     corpus.add_layer_meta("text")
     corpus.add_layer_meta("words", layer_type="span", base="text")
     corpus.add_layer_meta("pos", layer_type="seq", base="words", data="string")
@@ -97,7 +97,7 @@ def test_document_setitem():
 'pos': SeqLayer(['DT', 'VBZ', 'DT', 'NN', '.'])})")
 
 def test_add_layers():
-    corpus = Corpus(db="tmp.db", new=True)
+    corpus = Corpus(db="<memory>", new=True)
     corpus.add_layer_meta("text")
     corpus.add_layer_meta("words", layer_type="span", base="text")
     corpus.add_layer_meta("pos", layer_type="seq", base="words", data="string")
@@ -106,7 +106,7 @@ def test_add_layers():
             "pos": ["DT", "VBZ", "DT", "NN", "."]})
  
 def test_text_for_layer():
-    corpus = Corpus(db="tmp.db", new=True)
+    corpus = Corpus(db="<memory>", new=True)
     corpus.add_layer_meta("text")
     corpus.add_layer_meta("words", layer_type="span", base="text")
     corpus.add_layer_meta("pos", layer_type="seq", base="words", data="string")
@@ -116,7 +116,7 @@ def test_text_for_layer():
     list(doc.text_for_layer("text"))
 
 def test_char_layers():
-    corpus = Corpus(db="tmp.db", new=True)
+    corpus = Corpus(db="<memory>", new=True)
     corpus.add_layer_meta("text")
     doc = corpus.add_doc("This")
     assert (doc.text.data == [None, None, None, None])
@@ -124,7 +124,7 @@ def test_char_layers():
     assert (doc.text.indexes("text") == [(0, 1), (1, 2), (2, 3), (3, 4)])
 
 def test_seq_layers():
-    corpus = Corpus(db="tmp.db", new=True)
+    corpus = Corpus(db="<memory>", new=True)
     corpus.add_layer_meta("text")
     corpus.add_layer_meta("words", layer_type="span", base="text")
     corpus.add_layer_meta("pos", layer_type="seq", base="words", data="string")
@@ -137,7 +137,7 @@ def test_seq_layers():
     assert (doc.pos.indexes("text") == [(0, 4), (5, 7), (8, 9), (10, 18), (18, 19)])
 
 def test_span_layer():
-    corpus = Corpus(db="tmp.db", new=True)
+    corpus = Corpus(db="<memory>", new=True)
     corpus.add_layer_meta("text")
     corpus.add_layer_meta("words", layer_type="span", base="text")
     doc = corpus.add_doc("This is a document.")
@@ -148,7 +148,7 @@ def test_span_layer():
     assert (doc.words.indexes("text") == [(0, 4), (5, 7), (8, 9), (10, 18), (18, 19)])
 
 def test_elem_layer():
-    corpus = Corpus(db="tmp.db", new=True)
+    corpus = Corpus(db="<memory>", new=True)
     corpus.add_layer_meta("text")
     corpus.add_layer_meta("words", layer_type="span", base="text")
     corpus.add_layer_meta("is_noun", layer_type="element", base="words", data="string")
@@ -162,7 +162,7 @@ def test_elem_layer():
     assert (doc.is_noun.indexes("text") == [(10, 18)])
 
 def test_update_docs():
-    corpus = Corpus(db="tmp.db", new=True)
+    corpus = Corpus(db="<memory>", new=True)
     corpus.add_layer_meta("text")
     corpus.add_layer_meta("words", layer_type="span", base="text")
 
@@ -179,14 +179,14 @@ def test_update_docs():
 def test_read_yaml_str2():
     corpus = read_yaml_str("_meta:\n  text:\n    type: characters\n"
     "  author:\n    type: characters\nwiDv:\n   text: This is a document.\n"
-    "   author: John Doe\n", "tmp2.db")
+    "   author: John Doe\n", "<memory>")
 
     for doc in corpus.docs:
         assert(doc.text.text[0] == "This is a document.")
         assert(doc.author.text[0] == "John Doe")
 
 def test_search():
-    corpus = Corpus(db="tmp.db", new=True)
+    corpus = Corpus(db="<memory>", new=True)
     corpus.add_layer_meta("text")
     corpus.add_layer_meta("words", layer_type="span", base="text")
     corpus.add_layer_meta("pos", layer_type="seq", base="words",

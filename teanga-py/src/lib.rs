@@ -3,7 +3,7 @@
 // License: Apache 2.0
 use pyo3::prelude::*;
 use ::teanga::disk_corpus::{DiskCorpus, PathAsDB};
-use ::teanga::{LayerDesc, LayerType, DataType, Value, Layer, Corpus, ReadableCorpus};
+use ::teanga::{LayerDesc, LayerType, DataType, Value, Layer, Corpus, ReadableCorpus, SimpleCorpus, DocumentContent, Document};
 use std::collections::HashMap;
 
 mod cuac_py;
@@ -12,9 +12,107 @@ mod query;
 use cuac_py::CuacPyCorpus;
 use ::teanga::{TeangaResult, IntoLayer, WriteableCorpus, TeangaError};
 
+pub enum PyCorpus {
+    Disk(DiskCorpus<PathAsDB>),
+    Mem(SimpleCorpus)
+}
+
+impl ReadableCorpus for PyCorpus {
+    fn iter_docs<'a>(&'a self) -> Box<dyn Iterator<Item = TeangaResult<Document>> + 'a> {
+        match self {
+            PyCorpus::Disk(corpus) => corpus.iter_docs(),
+            PyCorpus::Mem(corpus) => corpus.iter_docs()
+        }
+    }
+
+    fn iter_doc_ids<'a>(&'a self) -> Box<dyn Iterator<Item = TeangaResult<(String, Document)>> + 'a> {
+        match self {
+            PyCorpus::Disk(corpus) => corpus.iter_doc_ids(),
+            PyCorpus::Mem(corpus) => corpus.iter_doc_ids()
+        }
+    }
+
+    fn get_meta(&self) -> &HashMap<String, LayerDesc> {
+        match self {
+            PyCorpus::Disk(corpus) => corpus.get_meta(),
+            PyCorpus::Mem(corpus) => corpus.get_meta()
+        }
+    }
+}
+
+impl WriteableCorpus for PyCorpus {
+    fn set_meta(&mut self, meta: HashMap<String, LayerDesc>) -> TeangaResult<()> {
+        match self {
+            PyCorpus::Disk(corpus) => corpus.set_meta(meta),
+            PyCorpus::Mem(corpus) => corpus.set_meta(meta)
+        }
+    }
+
+    fn set_order(&mut self, order: Vec<String>) -> TeangaResult<()> {
+        match self {
+            PyCorpus::Disk(corpus) => corpus.set_order(order),
+            PyCorpus::Mem(corpus) => corpus.set_order(order)
+        }
+    }
+
+    fn add_doc<D: IntoLayer, DC: DocumentContent<D>>(&mut self, doc: DC) -> TeangaResult<String> {
+        match self {
+            PyCorpus::Disk(corpus) => corpus.add_doc(doc),
+            PyCorpus::Mem(corpus) => corpus.add_doc(doc)
+        }
+    }
+}
+
+impl Corpus for PyCorpus {
+    fn add_layer_meta(&mut self, name: String, layer_type: LayerType, 
+        base: Option<String>, data: Option<DataType>, link_types: Option<Vec<String>>, 
+        target: Option<String>, default: Option<Layer>,
+        meta: HashMap<String, Value>) -> TeangaResult<()> {
+        match self {
+            PyCorpus::Disk(corpus) => corpus.add_layer_meta(name, layer_type, base, data, link_types, target, default, meta),
+            PyCorpus::Mem(corpus) => corpus.add_layer_meta(name, layer_type, base, data, link_types, target, default, meta)
+        }
+    }
+
+    fn update_doc<D : IntoLayer, DC: DocumentContent<D>>(&mut self, id : &str, content : DC) -> TeangaResult<String> {
+        match self {
+            PyCorpus::Disk(corpus) => corpus.update_doc(id, content),
+            PyCorpus::Mem(corpus) => corpus.update_doc(id, content)
+        }
+    }
+
+    fn remove_doc(&mut self, id : &str) -> TeangaResult<()> {
+        match self {
+            PyCorpus::Disk(corpus) => corpus.remove_doc(id),
+            PyCorpus::Mem(corpus) => corpus.remove_doc(id)
+        }
+    }
+
+    fn get_doc_by_id(&self, id : &str) -> TeangaResult<Document> {
+        match self {
+            PyCorpus::Disk(corpus) => corpus.get_doc_by_id(id),
+            PyCorpus::Mem(corpus) => corpus.get_doc_by_id(id)
+        }
+    }
+
+    fn get_docs(&self) -> Vec<String> {
+        match self {
+            PyCorpus::Disk(corpus) => corpus.get_docs(),
+            PyCorpus::Mem(corpus) => corpus.get_docs()
+        }
+    }
+
+    fn get_order(&self) -> &Vec<String> {
+        match self {
+            PyCorpus::Disk(corpus) => corpus.get_order(),
+            PyCorpus::Mem(corpus) => corpus.get_order()
+        }
+    }
+}
+
 #[pyclass(name="Corpus")]
 /// A corpus object
-pub struct PyDiskCorpus(DiskCorpus<PathAsDB>);
+pub struct PyDiskCorpus(PyCorpus);
 
 #[pymethods]
 impl PyDiskCorpus {
@@ -29,8 +127,12 @@ impl PyDiskCorpus {
     /// A new corpus object
     ///
     pub fn new(path : &str) -> PyResult<PyDiskCorpus> {
-        Ok(PyDiskCorpus(
-                DiskCorpus::new_path_db(path)))
+        if path == "<memory>" {
+            return Ok(PyDiskCorpus(PyCorpus::Mem(SimpleCorpus::new())));
+        } else {
+            Ok(PyDiskCorpus(
+                    PyCorpus::Disk(DiskCorpus::new_path_db(path))))
+        }
     }
 
     #[pyo3(name="add_layer_meta")]
@@ -629,59 +731,108 @@ impl<'py> IntoPyObject<'py> for PyDataType {
 
 #[pyfunction]
 fn read_corpus_from_json_string(s : &str, path : &str) -> PyResult<PyDiskCorpus> {
-    let mut corpus = DiskCorpus::new_path_db(path);
-    //::teanga::read_corpus_from_json_string(s, path).map_err(|e|
-    ::teanga::read_json(s.as_bytes(), &mut corpus).map_err(|e|
-        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
-    Ok(PyDiskCorpus(corpus))
+    if path == "<memory>" {
+        let mut corpus = SimpleCorpus::new();
+        ::teanga::read_json(s.as_bytes(), &mut corpus).map_err(|e|
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        Ok(PyDiskCorpus(PyCorpus::Mem(corpus)))
+    } else {
+        let mut corpus = DiskCorpus::new_path_db(path);
+        ::teanga::read_json(s.as_bytes(), &mut corpus).map_err(|e|
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        Ok(PyDiskCorpus(PyCorpus::Disk(corpus)))
+    }
 }
 
 #[pyfunction]
 fn read_corpus_from_json_file(json : &str, path: &str) -> PyResult<PyDiskCorpus> {
-    let mut corpus = DiskCorpus::new_path_db(path);
-    let file = std::fs::File::open(json).map_err(|e|
-        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
-    ::teanga::read_json(file, &mut corpus).map_err(|e|
-        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
-    Ok(PyDiskCorpus(corpus))
+    if path == "<memory>" {
+        let mut corpus = SimpleCorpus::new();
+        let file = std::fs::File::open(json).map_err(|e|
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        ::teanga::read_json(file, &mut corpus).map_err(|e|
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        return Ok(PyDiskCorpus(PyCorpus::Mem(corpus)));
+    } else {
+        let mut corpus = DiskCorpus::new_path_db(path);
+        let file = std::fs::File::open(json).map_err(|e|
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        ::teanga::read_json(file, &mut corpus).map_err(|e|
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        Ok(PyDiskCorpus(PyCorpus::Disk(corpus)))
+    }
 }
 
 #[pyfunction]
 fn read_corpus_from_cuac_file(cuac : &str, path : &str) -> PyResult<PyDiskCorpus> {
-    let mut corpus = DiskCorpus::new_path_db(path);
-    let file = std::fs::File::open(cuac).map_err(|e|
-        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
-    ::teanga::read_cuac(file, &mut corpus).map_err(|e|
-        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
-    Ok(PyDiskCorpus(corpus))
+    if path == "<memory>" {
+        let mut corpus = SimpleCorpus::new();
+        let file = std::fs::File::open(cuac).map_err(|e|
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        ::teanga::read_cuac(file, &mut corpus).map_err(|e|
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        return Ok(PyDiskCorpus(PyCorpus::Mem(corpus)));
+    } else {
+        let mut corpus = DiskCorpus::new_path_db(path);
+        let file = std::fs::File::open(cuac).map_err(|e|
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        ::teanga::read_cuac(file, &mut corpus).map_err(|e|
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        Ok(PyDiskCorpus(PyCorpus::Disk(corpus)))
+    }
 }
 
 #[pyfunction]
 fn read_corpus_from_yaml_string(s : &str, path: &str) -> PyResult<PyDiskCorpus> {
-    let mut corpus = DiskCorpus::new_path_db(path);
-    ::teanga::read_yaml(s.as_bytes(), &mut corpus).map_err(|e|
-        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
-    Ok(PyDiskCorpus(corpus))
+    if path == "<memory>" {
+        let mut corpus = SimpleCorpus::new();
+        ::teanga::read_yaml(s.as_bytes(), &mut corpus).map_err(|e|
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        return Ok(PyDiskCorpus(PyCorpus::Mem(corpus)));
+    } else {
+        let mut corpus = DiskCorpus::new_path_db(path);
+        ::teanga::read_yaml(s.as_bytes(), &mut corpus).map_err(|e|
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        Ok(PyDiskCorpus(PyCorpus::Disk(corpus)))
+    }
 }
 
 #[pyfunction]
 fn read_corpus_from_yaml_file(yaml : &str, path: &str) -> PyResult<PyDiskCorpus> {
-    let mut corpus = DiskCorpus::new_path_db(path);
-    let file = std::fs::File::open(yaml).map_err(|e|
-        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
-    ::teanga::read_yaml(file, &mut corpus).map_err(|e|
-        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
-    Ok(PyDiskCorpus(corpus))
+    if path == "<memory>" {
+        let mut corpus = SimpleCorpus::new();
+        let file = std::fs::File::open(yaml).map_err(|e|
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        ::teanga::read_yaml(file, &mut corpus).map_err(|e|
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        return Ok(PyDiskCorpus(PyCorpus::Mem(corpus)));
+    } else {
+        let mut corpus = DiskCorpus::new_path_db(path);
+        let file = std::fs::File::open(yaml).map_err(|e|
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        ::teanga::read_yaml(file, &mut corpus).map_err(|e|
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        Ok(PyDiskCorpus(PyCorpus::Disk(corpus)))
+    }
 }
 
 #[pyfunction]
 fn read_corpus_from_yaml_url(url : &str, path : &str) -> PyResult<PyDiskCorpus> {
-    let mut corpus = DiskCorpus::new_path_db(path);
-    let url = reqwest::blocking::get(url).map_err(|e|
-        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
-    ::teanga::read_yaml(url, &mut corpus).map_err(|e|
-        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
-    Ok(PyDiskCorpus(corpus))
+    if path == "<memory>" {
+        let mut corpus = SimpleCorpus::new();
+        let url = reqwest::blocking::get(url).map_err(|e|
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        ::teanga::read_yaml(url, &mut corpus).map_err(|e|
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        return Ok(PyDiskCorpus(PyCorpus::Mem(corpus)));
+    } else {
+        let mut corpus = DiskCorpus::new_path_db(path);
+        let url = reqwest::blocking::get(url).map_err(|e|
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        ::teanga::read_yaml(url, &mut corpus).map_err(|e|
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        Ok(PyDiskCorpus(PyCorpus::Disk(corpus)))
+    }
 }
 
 #[pyfunction]
