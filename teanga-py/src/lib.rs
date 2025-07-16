@@ -282,6 +282,71 @@ impl PyLayerDesc {
     }
 }
 
+#[pyfunction]
+fn layerdesc_from_dict(dict: HashMap<String, Bound<PyAny>>) -> PyResult<PyLayerDesc> {
+    let layer_type = match dict.get("layer_type") {
+        Some(pyval) => pyval.extract::<PyLayerType>()
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?,
+        None => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Missing 'layer_type' key".to_string()))
+    };
+    let base = dict.get("base")
+        .and_then(|v| v.extract::<PyValue>().ok())
+        .and_then(|v| match v {
+            PyValue::String(s) => Some(s),
+            _ => None,
+        });
+    let data = dict.get("data")
+        .and_then(|v| v.extract::<PyValue>().ok())
+        .and_then(|v| match v {
+            PyValue::String(_) => Some(DataType::String),
+            PyValue::Array(arr) => Some(DataType::Enum(arr.into_iter().filter_map(|x| match x {
+                PyValue::String(s) => Some(s),
+                _ => None,
+            }).collect())),
+            _ => None,
+        });
+    let link_types = dict.get("link_types")
+        .and_then(|v| v.extract::<PyValue>().ok())
+        .and_then(|v| match v {
+            PyValue::Array(arr) => Some(arr.into_iter().filter_map(|x| match x {
+                PyValue::String(s) => Some(s),
+                _ => None,
+            }).collect()),
+            _ => None,
+        });
+    let target = dict.get("target")
+        .and_then(|v| v.extract::<PyValue>().ok())
+        .and_then(|v| match v {
+            PyValue::String(s) => Some(s),
+            _ => None,
+        });
+    let default = dict.get("default")
+        .and_then(|v| v.extract::<PyValue>().ok())
+        .and_then(|v| match v {
+            PyValue::Object(_) | PyValue::String(_) | PyValue::Array(_) => {
+                Some(PyRawLayer(Layer::MetaLayer(Some(v.clone().val()))).0)
+            }
+            _ => None,
+        });
+    let meta = dict.into_iter().filter_map(|(k, v)| {
+        if k == "layer_type" || k == "base" || k == "data" || k == "link_types" || k == "target" || k == "default" || k == "meta" {
+            None
+        } else {
+            v.extract::<PyValue>().ok().map(|pyv| (k, pyv.val()))
+        }
+    }).collect();
+    Ok(PyLayerDesc(LayerDesc {
+        layer_type: layer_type.0,
+        base,
+        data,
+        link_types,
+        target,
+        default,
+        meta
+    }))
+}
+
+
 #[derive(Debug,Clone,PartialEq, FromPyObject)]
 /// Any valid JSON/YAML value
 pub enum PyValue {
@@ -820,11 +885,21 @@ fn read_corpus_from_yaml_file(yaml : &str, path: &str) -> PyResult<PyDiskCorpus>
 fn read_corpus_from_yaml_url(url : &str, path : &str) -> PyResult<PyDiskCorpus> {
     if path == "<memory>" {
         let mut corpus = SimpleCorpus::new();
-        let url = reqwest::blocking::get(url).map_err(|e|
-            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
-        ::teanga::read_yaml(url, &mut corpus).map_err(|e|
-            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
-        return Ok(PyDiskCorpus(PyCorpus::Mem(corpus)));
+        let url = match reqwest::Url::parse(url) {
+            Ok(url) => url,
+            Err(e) => {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)));
+            }
+        };
+        if url.scheme() == "file" {
+            read_corpus_from_yaml_file(&url.path(), path)
+        } else {
+            let url = reqwest::blocking::get(url).map_err(|e|
+                PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+            ::teanga::read_yaml(url, &mut corpus).map_err(|e|
+                PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+            return Ok(PyDiskCorpus(PyCorpus::Mem(corpus)));
+        }
     } else {
         let mut corpus = DiskCorpus::new_path_db(path);
         let url = reqwest::blocking::get(url).map_err(|e|
@@ -896,5 +971,6 @@ fn teanga(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(write_corpus_to_json, m)?)?;
     m.add_function(wrap_pyfunction!(write_corpus_to_json_string, m)?)?;
     m.add_function(wrap_pyfunction!(write_corpus_to_cuac, m)?)?;
+    m.add_function(wrap_pyfunction!(layerdesc_from_dict, m)?)?;
     Ok(())
 }

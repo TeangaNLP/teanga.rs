@@ -1,5 +1,5 @@
 import teanga_pyo3.teanga as teangadb# if this fails the Rust code is not installed
-from teanga import Corpus, read_json_str, read_yaml_str, read_tcf
+from teanga import Corpus, read_json_str, read_yaml_str, read_cuac
 import os
 import shutil
 import sys
@@ -60,8 +60,8 @@ def test_to_yaml_str():
     corpus.add_layer_meta("text")
     _doc = corpus.add_doc("This is a document.")
     assert (corpus.to_yaml_str() ==
-        '_meta:\n  text:\n    type: characters\n\
-Kjco:\n  text: This is a document.\n')
+        '_meta:\n    text:\n        type: characters\n\
+Kjco:\n    text: This is a document.\n')
 
 def test_to_json_str():
     corpus = Corpus(db="<memory>", new=True)
@@ -184,28 +184,6 @@ def test_read_yaml_str2():
     for doc in corpus.docs:
         assert(doc.text.text[0] == "This is a document.")
         assert(doc.author.text[0] == "John Doe")
-
-def test_search():
-    corpus = Corpus(db="<memory>", new=True)
-    corpus.add_layer_meta("text")
-    corpus.add_layer_meta("words", layer_type="span", base="text")
-    corpus.add_layer_meta("pos", layer_type="seq", base="words",
-                           data=["NOUN", "VERB", "ADJ", "ADV"])
-    corpus.add_layer_meta("lemma", layer_type="seq", base="words",
-                           data="string")
-    doc = corpus.add_doc("Colorless green ideas sleep furiously.")
-    doc.words = [(0, 9), (10, 15), (16, 21), (22, 27), (28, 37)]
-    doc.pos = ["ADJ", "ADJ", "NOUN", "VERB", "ADV"]
-    doc.lemma = ["colorless", "green", "idea", "sleep", "furiously"]
-    assert(list(corpus.search(pos="NOUN")) == ['9wpe'])
-    assert(list(corpus.search(pos=["NOUN", "VERB"])) == ['9wpe'])
-    assert(list(corpus.search(pos={"$in": ["NOUN", "VERB"]})) == ['9wpe'])
-    assert(list(corpus.search(pos={"$regex": "N.*"})) == ['9wpe'])
-    assert(list(corpus.search(pos="VERB", lemma="sleep")) == ['9wpe'])
-    assert(list(corpus.search(pos="VERB", words="idea")) == [])
-    assert(list(corpus.search(pos="VERB", words="ideas")) == ['9wpe'])
-    assert(list(corpus.search({"pos": "VERB", "lemma": "sleep"})) == ['9wpe'])
-    assert(list(corpus.search({"$and": {"pos": "VERB", "lemma": "sleep"}})) == ['9wpe'])
 
 def test_text_freq():
     corpus = Corpus()

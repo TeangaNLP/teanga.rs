@@ -77,10 +77,24 @@ fn corpus_serialize<C : ReadableCorpus, S>(c : &C, serializer: S) -> Result<S::O
     where S: Serializer
 {
     let mut map = serializer.serialize_map(Some(3))?;
-    map.serialize_entry("_meta", &c.get_meta())?;
+    let meta = c.get_meta();
+    let mut meta_keys: Vec<_> = meta.keys().collect();
+    meta_keys.sort();
+    let mut sorted_meta = HashMap::new();
+    for key in meta_keys {
+        sorted_meta.insert(key.clone(), meta[key].clone());
+    }
+    map.serialize_entry("_meta", &sorted_meta)?;
     for res in c.iter_doc_ids() {
         let (id, doc) = res.map_err(serde::ser::Error::custom)?;
-        map.serialize_entry(&id, &doc)?;
+        // Serialize document layers in alphabetic order
+        let mut doc_keys: Vec<_> = doc.keys().iter().map(|x| x.clone()).collect::<Vec<_>>();
+        doc_keys.sort();
+        let mut sorted_doc = HashMap::new();
+        for key in doc_keys {
+            sorted_doc.insert(key.clone(), doc[&key].clone());
+        }
+        map.serialize_entry(&id, &sorted_doc)?;
     }
     map.end()
 }
@@ -256,9 +270,10 @@ pub fn write_json<W : Write, C : ReadableCorpus>(mut writer : W, corpus : &C) ->
 ///
 /// * `writer` - The writer to write to
 /// * `corpus` - The corpus to write
-pub fn write_yaml<W : Write, C : ReadableCorpus>(mut writer : W, corpus : &C) -> Result<(), serde_yml::Error>  {
-    let mut ser = serde_yml::Serializer::new(&mut writer);
-    corpus_serialize(corpus, &mut ser)
+pub fn write_yaml<W : Write, C : ReadableCorpus>(writer : W, corpus : &C) -> Result<(), SerializeError>  {
+    //let mut ser = serde_yml::Serializer::new(&mut writer);
+    //corpus_serialize(corpus, &mut ser)
+    Ok(pretty_yaml_serialize(corpus, writer)?)
 }
 
 
