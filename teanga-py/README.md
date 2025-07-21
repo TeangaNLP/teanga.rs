@@ -1,45 +1,18 @@
-Teanga Core Library (Rust)
-==========================
+Teanga Rust-Python Bindings
+===========================
 
-This is the core library for the Teanga project. It is written in Rust and provides the core functionality for the Teanga project.
-Teanga is a library for representing NLP annotations and pipelines. 
-For more details of the project see the [Teanga project page](https://teanga.io/).
+This library provides Python bindings for the Teanga Rust library, allowing you to use Rust code in Python applications.
 
-## Usage (Rust)
+This enables the `teanga` library to use the database features and the Cuac file format.
 
-To use the Teanga core library in your Rust project, add the following to your `Cargo.toml` file:
-
-```toml
-[dependencies]
-teanga = "0.1.0"
-```
-
-Then, in your Rust code, you can use the Teanga core library as follows:
-
-```rust
-use teanga::Corpus;
-
-let corpus = Corpus::new();
-corpus.add_doc(("text", "This is a test."));
-```
-
-## Usage (Python)
-
-This can also be integrated with the core Python library and provides
-persistence and fast access to the data structures in the Rust library.
-
-You should install the library from the wheels available under the 
-release link
+This package is intended to be used by installing Teanga with the `pyo3` feature as follows:
 
 ```bash
-pip install https://github.com/TeangaNLP/teanga2/releases/download/dev-latest-linux/teanga-0.1.0-cp310-cp310-manylinux_2_34_x86_64.whl
+pip install teanga[pyo3]
 ```
 
-Then, in your Python code, you can use the Teanga core library 
-by specifying the `db` property as follows:
+## Features
 
-```python
-import teanga
-
-corpus = teanga.Corpus(db="test.db")
-```
+- **Database Support**: Use Teanga's database features directly in Python.
+- **Cuac File Format**: Read and write Cuac files using Teanga's Rust implementation.
+- **Performance**: Leverage Rust's performance and safety in Python applications.
