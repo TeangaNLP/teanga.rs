@@ -201,3 +201,5 @@ tmp.tcf
 tmp.yaml
 flamegraph.svg
 perf.data
+
+teanga-wasm/pkg
