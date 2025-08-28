@@ -144,7 +144,7 @@ impl TeangaWasm {
         Ok(json)
     }
     #[wasm_bindgen]
-    pub fn get_meta(&self) -> String {
+    pub fn get_meta(&self) -> Result<String, WasmError> {
         // Convert metadata to JSON-serializable format
         let mut meta_map = HashMap::new();
         for (name, layer_desc) in self.corpus.get_meta() {
@@ -231,7 +231,7 @@ impl TeangaWasm {
     }
 
     #[wasm_bindgen]
-    pub fn corpus_info(&self) -> String {
+    pub fn corpus_info(&self) -> Result<String, WasmError> {
         let meta = self.corpus.get_meta();
         let docs = self.corpus.get_docs();
         
