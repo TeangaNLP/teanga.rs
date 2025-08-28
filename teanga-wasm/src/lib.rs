@@ -142,7 +142,7 @@ impl TeangaWasm {
         let ids = self.corpus.get_docs();
         let json = serde_json::to_string(&ids)?;
         Ok(json)
-
+    }
     #[wasm_bindgen]
     pub fn get_meta(&self) -> String {
         // Convert metadata to JSON-serializable format
