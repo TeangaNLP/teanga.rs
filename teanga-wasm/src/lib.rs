@@ -14,7 +14,6 @@ use teanga::{
 #[wasm_bindgen(start)]
 pub fn main() {
     console_error_panic_hook::set_once();
-    console::log_1(&"🦀 Teanga WASM module initialized".into());
 }
 
 // JavaScript-friendly error type
@@ -57,7 +56,6 @@ pub struct TeangaWasm {
 impl TeangaWasm {
     #[wasm_bindgen(constructor)]
     pub fn new() -> TeangaWasm {
-        console::log_1(&"Creating new Teanga corpus in Rust/WASM".into());
         TeangaWasm {
             corpus: SimpleCorpus::new(),
         }
@@ -106,7 +104,6 @@ impl TeangaWasm {
             HashMap::new(), // meta
         )?;
 
-        console::log_1(&format!("✅ Added layer: {} ({})", name, layer_type).into());
         Ok(())
     }
 
@@ -123,7 +120,6 @@ impl TeangaWasm {
         }
 
         let doc_id = self.corpus.add_doc(layers)?;
-        console::log_1(&format!("📄 Added document: {}", doc_id).into());
         Ok(doc_id)
     }
 
@@ -142,10 +138,10 @@ impl TeangaWasm {
     }
 
     #[wasm_bindgen]
-    pub fn get_doc_ids(&self) -> String {
+    pub fn get_doc_ids(&self) -> Result<String, WasmError> {
         let ids = self.corpus.get_docs();
-        serde_json::to_string(&ids).unwrap_or_else(|_| "[]".to_string())
-    }
+        let json = serde_json::to_string(&ids)?;
+        Ok(json)
 
     #[wasm_bindgen]
     pub fn get_meta(&self) -> String {
@@ -176,7 +172,7 @@ impl TeangaWasm {
             ));
         }
         
-        serde_json::to_string(&meta_map).unwrap_or_else(|_| "{}".to_string())
+        Ok(serde_json::to_string(&meta_map)?)
     }
 
     #[wasm_bindgen]
