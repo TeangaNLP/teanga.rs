@@ -243,7 +243,7 @@ impl TeangaWasm {
             "implementation": "Rust WASM"
         });
         
-        serde_json::to_string(&info).unwrap_or_else(|_| "{}".to_string())
+         serde_json::to_string(&info).map_err(|e| WasmError { message: e.to_string() })
     }
 
     // Helper methods
