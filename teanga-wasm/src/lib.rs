@@ -46,6 +46,14 @@ impl From<serde_json::Error> for WasmError {
     }
 }
 
+impl From<serde_yaml::Error> for WasmError {
+    fn from(err: serde_yaml::Error) -> Self {
+        WasmError {
+            message: format!("YAML error: {}", err),
+        }
+    }
+}
+
 // Main WASM wrapper for Teanga corpus
 #[wasm_bindgen]
 pub struct TeangaWasm {
@@ -143,6 +151,7 @@ impl TeangaWasm {
         let json = serde_json::to_string(&ids)?;
         Ok(json)
     }
+
     #[wasm_bindgen]
     pub fn get_meta(&self) -> Result<String, WasmError> {
         // Convert metadata to JSON-serializable format
@@ -230,6 +239,41 @@ impl TeangaWasm {
         Ok(yaml)
     }
 
+    // NEW: from_yaml method
+    #[wasm_bindgen]
+    pub fn from_yaml(yaml_content: &str) -> Result<TeangaWasm, WasmError> {
+        // Parse YAML to a generic Value first
+        let parsed: serde_yaml::Value = serde_yaml::from_str(yaml_content)?;
+        
+        let mut corpus = TeangaWasm::new();
+        
+        if let serde_yaml::Value::Mapping(root) = parsed {
+            // Process _meta section first
+            if let Some(meta_value) = root.get(&serde_yaml::Value::String("_meta".to_string())) {
+                if let serde_yaml::Value::Mapping(meta_map) = meta_value {
+                    for (layer_name, layer_def) in meta_map {
+                        if let (serde_yaml::Value::String(name), serde_yaml::Value::Mapping(def)) = (layer_name, layer_def) {
+                            corpus.process_layer_definition(name, def)?;
+                        }
+                    }
+                }
+            }
+            
+            // Process document sections
+            for (doc_id, doc_content) in &root {
+                if let serde_yaml::Value::String(id) = doc_id {
+                    if id != "_meta" {
+                        if let serde_yaml::Value::Mapping(doc_layers) = doc_content {
+                            corpus.process_document(id, doc_layers)?;
+                        }
+                    }
+                }
+            }
+        }
+        
+        Ok(corpus)
+    }
+
     #[wasm_bindgen]
     pub fn corpus_info(&self) -> Result<String, WasmError> {
         let meta = self.corpus.get_meta();
@@ -244,6 +288,95 @@ impl TeangaWasm {
         });
         
          serde_json::to_string(&info).map_err(|e| WasmError { message: e.to_string() })
+    }
+
+    // Helper method to process layer definitions from _meta
+    fn process_layer_definition(&mut self, name: &str, definition: &serde_yaml::Mapping) -> Result<(), WasmError> {
+        let layer_type = definition.get(&serde_yaml::Value::String("type".to_string()))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| WasmError { message: "Missing layer type".to_string() })?;
+            
+        let base = definition.get(&serde_yaml::Value::String("base".to_string()))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+            
+        let data_type = definition.get(&serde_yaml::Value::String("data".to_string()))
+            .and_then(|v| self.yaml_value_to_data_type_string(v));
+            
+        self.add_layer_meta(name, layer_type, base, data_type)?;
+        Ok(())
+    }
+    
+    // Helper method to process documents
+    fn process_document(&mut self, _doc_id: &str, layers: &serde_yaml::Mapping) -> Result<(), WasmError> {
+        let mut layer_map = HashMap::new();
+        
+        for (layer_name, layer_data) in layers {
+            if let serde_yaml::Value::String(name) = layer_name {
+                let json_value = self.yaml_value_to_json_value(layer_data)?;
+                layer_map.insert(name.clone(), json_value);
+            }
+        }
+        
+        let doc_json = serde_json::to_string(&layer_map)?;
+        self.add_doc(&doc_json)?;
+        Ok(())
+    }
+    
+    // Convert YAML values to JSON values for existing processing
+    fn yaml_value_to_json_value(&self, yaml_val: &serde_yaml::Value) -> Result<serde_json::Value, WasmError> {
+        match yaml_val {
+            serde_yaml::Value::String(s) => Ok(serde_json::Value::String(s.clone())),
+            serde_yaml::Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    Ok(serde_json::Value::Number(i.into()))
+                } else if let Some(f) = n.as_f64() {
+                    Ok(serde_json::Number::from_f64(f)
+                        .map(serde_json::Value::Number)
+                        .unwrap_or(serde_json::Value::Null))
+                } else {
+                    Ok(serde_json::Value::Null)
+                }
+            }
+            serde_yaml::Value::Bool(b) => Ok(serde_json::Value::Bool(*b)),
+            serde_yaml::Value::Sequence(seq) => {
+                let json_array: Result<Vec<serde_json::Value>, _> = seq
+                    .iter()
+                    .map(|v| self.yaml_value_to_json_value(v))
+                    .collect();
+                Ok(serde_json::Value::Array(json_array?))
+            }
+            serde_yaml::Value::Mapping(map) => {
+                let mut json_obj = serde_json::Map::new();
+                for (k, v) in map {
+                    if let serde_yaml::Value::String(key) = k {
+                        json_obj.insert(key.clone(), self.yaml_value_to_json_value(v)?);
+                    }
+                }
+                Ok(serde_json::Value::Object(json_obj))
+            }
+            serde_yaml::Value::Null => Ok(serde_json::Value::Null),
+            _ => Err(WasmError { message: "Unsupported YAML value type".to_string() })
+        }
+    }
+    
+    // Convert YAML data type definitions to strings
+    fn yaml_value_to_data_type_string(&self, yaml_val: &serde_yaml::Value) -> Option<String> {
+        match yaml_val {
+            serde_yaml::Value::String(s) => Some(s.clone()),
+            serde_yaml::Value::Sequence(seq) => {
+                // Handle enum types [val1, val2, ...]
+                let strings: Vec<String> = seq.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect();
+                if !strings.is_empty() {
+                    serde_json::to_string(&strings).ok()
+                } else {
+                    None
+                }
+            }
+            _ => None
+        }
     }
 
     // Helper methods
