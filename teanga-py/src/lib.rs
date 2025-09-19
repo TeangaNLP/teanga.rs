@@ -875,8 +875,14 @@ fn read_corpus_from_yaml_file(yaml : &str, path: &str) -> PyResult<PyDiskCorpus>
         let mut corpus = DiskCorpus::new_path_db(path);
         let file = std::fs::File::open(yaml).map_err(|e|
             PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
-        ::teanga::read_yaml(file, &mut corpus).map_err(|e|
-            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        if yaml.ends_with(".gz") {
+            let decoder = flate2::read::GzDecoder::new(file);
+            ::teanga::read_yaml(decoder, &mut corpus).map_err(|e|
+                PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        } else {
+            ::teanga::read_yaml(file, &mut corpus).map_err(|e|
+                PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+        }
         Ok(PyDiskCorpus(PyCorpus::Disk(corpus)))
     }
 }
@@ -896,17 +902,32 @@ fn read_corpus_from_yaml_url(url : &str, path : &str) -> PyResult<PyDiskCorpus> 
         } else {
             let url = reqwest::blocking::get(url).map_err(|e|
                 PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
-            ::teanga::read_yaml(url, &mut corpus).map_err(|e|
-                PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
-            return Ok(PyDiskCorpus(PyCorpus::Mem(corpus)));
+            // if url ends with .gz then use a GzDecoder
+            if url.url().as_str().ends_with(".gz") {
+                let decoder = flate2::read::GzDecoder::new(url);
+                ::teanga::read_yaml(decoder, &mut corpus).map_err(|e|
+                    PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+                return Ok(PyDiskCorpus(PyCorpus::Mem(corpus)));
+            } else {
+                ::teanga::read_yaml(url, &mut corpus).map_err(|e|
+                    PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+                return Ok(PyDiskCorpus(PyCorpus::Mem(corpus)));
+            }
         }
     } else {
         let mut corpus = DiskCorpus::new_path_db(path);
         let url = reqwest::blocking::get(url).map_err(|e|
             PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
-        ::teanga::read_yaml(url, &mut corpus).map_err(|e|
-            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
-        Ok(PyDiskCorpus(PyCorpus::Disk(corpus)))
+        if url.url().as_str().ends_with(".gz") {
+            let decoder = flate2::read::GzDecoder::new(url);
+            ::teanga::read_yaml(decoder, &mut corpus).map_err(|e|
+                PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+            return Ok(PyDiskCorpus(PyCorpus::Disk(corpus)));
+        } else {
+            ::teanga::read_yaml(url, &mut corpus).map_err(|e|
+                PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("{}", e)))?;
+            Ok(PyDiskCorpus(PyCorpus::Disk(corpus)))
+        }
     }
 }
 

@@ -1,13 +1,11 @@
 // teanga-wasm/src/lib.rs
 use wasm_bindgen::prelude::*;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use web_sys::console;
 
 // Import the actual Teanga types but only the in-memory ones for WASM
 use teanga::{
     SimpleCorpus, LayerType, DataType, Layer, Corpus, ReadableCorpus, WriteableCorpus,
-    LayerDesc, Document, Value, TeangaError
+    Value, TeangaError
 };
 
 // Setup panic hook for better debugging

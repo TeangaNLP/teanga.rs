@@ -29,6 +29,7 @@ thiserror = "1.0.24"
 ciborium = "0.2.1"
 regex = "1.10.5"
 reqwest = { version = "0.12.5", features = ["blocking"] }
+flate2 = "1.0.29"
 
 [dev-dependencies]
 tempfile = "3.2.0"
