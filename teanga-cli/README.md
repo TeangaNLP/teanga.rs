@@ -22,6 +22,7 @@ Usage: teanga <COMMAND>
 Commands:
   load     Load a file into the corpus
   convert  Convert a Teanga Corpus
+  show     Show one or all documents in a corpus
   help     Print this message or the help of the given subcommand(s)
 
 Options:
@@ -70,4 +71,41 @@ Options:
       --meta <META>  The meta information, as a separate YAML file
       --jsonl        Read the file as JSONL (one JSON object per line)
   -h, --help         Print help
+```
+
+### Show Command
+
+```
+Show one or all documents in a corpus
+
+Usage: teanga show [OPTIONS] <PATH>
+
+Arguments:
+  <PATH>  Path to a corpus file, or to a DB directory (as used by `load`)
+
+Options:
+      --doc-id <DOC_ID>  Only show the document with this ID
+  -f, --format <FORMAT>  The format of the input file (ignored if `path` is a DB directory) [default: guess] [possible values: json, jsonl, yaml, cuac, guess]
+      --meta <META>      Meta information as a separate YAML file (required for JSONL input)
+  -h, --help             Print help
+```
+
+`PATH` can be either a corpus file (format is guessed from the extension,
+`.gz` is handled transparently) or a DB directory created by `teanga load`.
+Each document is printed with its underlying text first, followed by each
+group of annotation layers that share a common tokenization, rendered as an
+aligned table with one row per layer (e.g. `pos` and `lemma`, both based on
+`words`, line up under a shared `words` row). Output wraps to the current
+terminal width (80 columns if it can't be detected, e.g. when redirected to
+a file), regrouping the annotation rows together at each wrap point so a
+line and its annotations always stay together:
+
+```
+$ teanga show corpus.yaml --doc-id Ewyz
+=== Ewyz ===
+text: The quick fox jumps
+
+words: The quick fox  jumps
+lemma: the quick fox  jump
+pos  : det adj   noun verb
 ```
