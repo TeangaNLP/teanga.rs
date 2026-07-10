@@ -470,6 +470,28 @@ mod test {
     }
 
     #[test]
+    fn test_estimate_query_count() {
+        let mut corpus = build_pos_corpus();
+        let query = || QueryBuilder::new().value("pos", "verb".to_string()).build();
+
+        // Without an index, there is no way to narrow the candidates down,
+        // so the estimate is just an upper bound: every document in the corpus
+        assert_eq!(corpus.estimate_query_count(query()).unwrap(), corpus.get_docs().len());
+        assert_eq!(corpus.estimate_query_count(query()).unwrap(), 3);
+
+        // With an index, the estimate matches the actual number of results
+        // for a simple equality query
+        corpus.create_index("pos").unwrap();
+        let actual : Vec<String> = corpus.search(query()).map(|r| r.unwrap().0).collect();
+        assert_eq!(corpus.estimate_query_count(query()).unwrap(), actual.len());
+        assert_eq!(corpus.estimate_query_count(query()).unwrap(), 1);
+
+        // A value that does not occur in the index gives an exact estimate of zero
+        let missing_query = QueryBuilder::new().value("pos", "adverb".to_string()).build();
+        assert_eq!(corpus.estimate_query_count(missing_query).unwrap(), 0);
+    }
+
+    #[test]
     fn test_index_stays_in_sync_with_mutations() {
         let mut corpus = build_pos_corpus();
         corpus.create_index("pos").unwrap();
