@@ -1,4 +1,4 @@
-//! # Teanga 
+//! # Teanga
 //!
 //! Teanga is a datamodel for text corpora that is designed to be simple to use and efficient to store.
 //! This implementation provides both in-memory and disk-based corpora that can be used to store and query text corpora.
@@ -15,43 +15,51 @@
 // Purpose: Rust implementation of the TeangaDB Python module.
 // Author: John P. McCrae
 // License: Apache 2.0
-use std::collections::HashMap;
-#[cfg(feature = "sled")]
-use sled;
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 #[cfg(feature = "fjall")]
 use fjall;
+use itertools::Itertools;
 #[cfg(feature = "redb")]
 use redb;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD;
-use itertools::Itertools;
-use serde::{Serialize,Deserialize};
+#[cfg(feature = "sled")]
+use sled;
+use std::collections::HashMap;
 use thiserror::Error;
 
 pub mod channel_corpus;
+mod cuac;
 #[cfg(any(feature = "sled", feature = "fjall", feature = "redb"))]
 pub mod disk_corpus;
 pub mod document;
 pub mod layer;
 pub mod layer_builder;
+pub mod match_condition;
 pub mod query;
 pub mod serialization;
-pub mod match_condition;
-mod cuac;
 
-pub use document::{Document, DocumentContent, DocumentBuilder};
+pub use cuac::{
+    bytes_to_doc, doc_content_to_bytes, read_cuac, write_cuac, write_cuac_config, write_cuac_doc,
+    write_cuac_header, write_cuac_with_config, CuacConfig, CuacReadError, CuacWriteError, Index,
+    IndexResult, NoCompression, ShocoCompression, SmazCompression, StringCompression,
+    StringCompressionError, StringCompressionMethod,
+};
 #[cfg(any(feature = "sled", feature = "fjall", feature = "redb"))]
 pub use disk_corpus::{DiskCorpus, PathAsDB};
-pub use layer::{IntoLayer, Layer, LayerDesc, DataType, LayerType, TeangaData};
+pub use document::{Document, DocumentBuilder, DocumentContent};
+pub use layer::{DataType, IntoLayer, Layer, LayerDesc, LayerType, TeangaData};
 pub use layer_builder::build_layer;
+pub use match_condition::{DataMatchCondition, TextMatchCondition};
 pub use query::Query;
-pub use serialization::{read_json, read_yaml, write_json, write_yaml, read_yaml_with_config, read_json_with_config, read_jsonl, SerializationSettings};
-pub use cuac::{write_cuac, write_cuac_with_config, read_cuac, write_cuac_header, write_cuac_config, write_cuac_doc, doc_content_to_bytes, bytes_to_doc, Index, IndexResult, CuacReadError, CuacWriteError, CuacConfig, StringCompression, StringCompressionError, StringCompressionMethod, NoCompression, SmazCompression, ShocoCompression};
-pub use match_condition::{TextMatchCondition, DataMatchCondition};
+pub use serialization::{
+    read_json, read_json_with_config, read_jsonl, read_yaml, read_yaml_with_config, write_json,
+    write_yaml, SerializationSettings,
+};
 
 /// Trait that defines a corpus according to the Teanga Data Model
-pub trait Corpus : WriteableCorpus + ReadableCorpus {
+pub trait Corpus: WriteableCorpus + ReadableCorpus {
     /// Add a meta layer to the corpus
     ///
     /// # Arguments
@@ -64,10 +72,17 @@ pub trait Corpus : WriteableCorpus + ReadableCorpus {
     /// * `target` - The target layer for this layer (if using link data)
     /// * `default` - The default values for this layer
     /// * `meta` - The metadata for this layer
-    fn add_layer_meta(&mut self, name: String, layer_type: LayerType, 
-        base: Option<String>, data: Option<DataType>, link_types: Option<Vec<String>>, 
-        target: Option<String>, default: Option<Layer>,
-        meta: HashMap<String, Value>) -> TeangaResult<()>;
+    fn add_layer_meta(
+        &mut self,
+        name: String,
+        layer_type: LayerType,
+        base: Option<String>,
+        data: Option<DataType>,
+        link_types: Option<Vec<String>>,
+        target: Option<String>,
+        default: Option<Layer>,
+        meta: HashMap<String, Value>,
+    ) -> TeangaResult<()>;
     /// Build a layer using a builder
     ///
     ///
@@ -78,7 +93,10 @@ pub trait Corpus : WriteableCorpus + ReadableCorpus {
     /// # Returns
     ///
     /// A builder object
-    fn build_layer(&mut self, name: &str) -> crate::layer_builder::LayerBuilderImpl<Self> where Self: Sized {
+    fn build_layer(&mut self, name: &str) -> crate::layer_builder::LayerBuilderImpl<Self>
+    where
+        Self: Sized,
+    {
         build_layer(self, name)
     }
     /// Build a document using a builder
@@ -86,7 +104,10 @@ pub trait Corpus : WriteableCorpus + ReadableCorpus {
     /// # Returns
     ///
     /// A builder object
-    fn build_doc<'a>(&'a mut self) -> DocumentBuilder<'a, Self> where Self : Sized {
+    fn build_doc<'a>(&'a mut self) -> DocumentBuilder<'a, Self>
+    where
+        Self: Sized,
+    {
         DocumentBuilder::new(self)
     }
 
@@ -101,21 +122,25 @@ pub trait Corpus : WriteableCorpus + ReadableCorpus {
     /// # Returns
     ///
     /// The new ID of the document (if no text layers are changed this will be the same as input)
-    fn update_doc<D : IntoLayer, DC: DocumentContent<D>>(&mut self, id : &str, content : DC) -> TeangaResult<String>;
+    fn update_doc<D: IntoLayer, DC: DocumentContent<D>>(
+        &mut self,
+        id: &str,
+        content: DC,
+    ) -> TeangaResult<String>;
 
     /// Remove a single document from the corpus
     ///
     /// # Arguments
     ///
     /// * `id` - The ID of the document
-    fn remove_doc(&mut self, id : &str) -> TeangaResult<()>;
+    fn remove_doc(&mut self, id: &str) -> TeangaResult<()>;
 
     /// Get a document object by its ID
     ///
     /// # Arguments
     ///
     /// * `id` - The ID of the document
-    fn get_doc_by_id(&self, id : &str) -> TeangaResult<Document>;
+    fn get_doc_by_id(&self, id: &str) -> TeangaResult<Document>;
 
     /// Get the IDs of all documents in the corpus
     fn get_docs(&self) -> Vec<String>;
@@ -130,7 +155,10 @@ pub trait Corpus : WriteableCorpus + ReadableCorpus {
 
     /// Add multiple documents to the corpus. This can be more efficient than
     /// calling add_doc multiple times as it may use a single DB transaction
-    fn add_docs<D : IntoLayer, DC : DocumentContent<D>>(&mut self, content : Vec<DC>) -> TeangaResult<Vec<String>> {
+    fn add_docs<D: IntoLayer, DC: DocumentContent<D>>(
+        &mut self,
+        content: Vec<DC>,
+    ) -> TeangaResult<Vec<String>> {
         let mut ids = Vec::new();
         for doc in content {
             ids.push(self.add_doc(doc)?);
@@ -148,7 +176,11 @@ pub trait Corpus : WriteableCorpus + ReadableCorpus {
     /// # Returns
     ///
     /// A map from words to their frequency
-    fn text_freq<C: TextMatchCondition>(&self, layer : &str, condition : C) -> TeangaResult<HashMap<String, u32>> {
+    fn text_freq<C: TextMatchCondition>(
+        &self,
+        layer: &str,
+        condition: C,
+    ) -> TeangaResult<HashMap<String, u32>> {
         let mut freq = HashMap::new();
         for doc_id in self.get_docs() {
             let doc = self.get_doc_by_id(&doc_id)?;
@@ -172,7 +204,11 @@ pub trait Corpus : WriteableCorpus + ReadableCorpus {
     /// # Returns
     ///
     /// A map from values to their frequency
-    fn val_freq<C: DataMatchCondition>(&self, layer : &str, condition : C) -> TeangaResult<HashMap<TeangaData, u32>> {
+    fn val_freq<C: DataMatchCondition>(
+        &self,
+        layer: &str,
+        condition: C,
+    ) -> TeangaResult<HashMap<TeangaData, u32>> {
         let mut freq = HashMap::new();
         for doc_id in self.get_docs() {
             let doc = self.get_doc_by_id(&doc_id)?;
@@ -185,7 +221,7 @@ pub trait Corpus : WriteableCorpus + ReadableCorpus {
             }
         }
         Ok(freq)
-    } 
+    }
     /// Search the corpus for documents that match a query
     ///
     /// If an index (see [`Corpus::create_index`]) exists for a layer
@@ -200,22 +236,39 @@ pub trait Corpus : WriteableCorpus + ReadableCorpus {
     /// # Returns
     ///
     /// An iterator of IDs and documents that match the query
-    fn search<'a>(&'a self, query : Query) -> Box<dyn Iterator<Item=TeangaResult<(String, Document)>> + 'a> where Self: Sized {
+    fn search<'a>(
+        &'a self,
+        query: Query,
+    ) -> Box<dyn Iterator<Item = TeangaResult<(String, Document)>> + 'a>
+    where
+        Self: Sized,
+    {
         match query.candidate_ids(self) {
-            Some(ids) => {
-                Box::new(ids.into_iter()
+            Some(ids) => Box::new(
+                ids.into_iter()
                     .map(move |id| self.get_doc_by_id(&id).map(|doc| (id, doc)))
                     .filter(move |x| match x {
                         Ok((_, doc)) => query.matches(doc, self.get_meta()),
-                        Err(_) => false
-                    }))
-            },
-            None => {
-                Box::new(self.iter_doc_ids().filter(move |x| match x {
-                    Ok((_, doc)) => query.matches(doc, self.get_meta()),
-                    Err(_) => false
-                }))
-            }
+                        Err(_) => false,
+                    }),
+            ),
+            None => Box::new(self.iter_doc_ids().filter(move |x| match x {
+                Ok((_, doc)) => query.matches(doc, self.get_meta()),
+                Err(_) => false,
+            })),
+        }
+    }
+
+    /// Get the estimated number of documents that match a query. This is an estimate
+    /// that gives the maximum number of documents that could match the query, and
+    /// so can be used to quickly estimate whether a query is likely to return any results without actually executing it.
+    fn estimate_query_count(&self, query: Query) -> TeangaResult<usize>
+    where
+        Self: Sized,
+    {
+        match query.candidate_ids(self) {
+            Some(ids) => Ok(ids.len()),
+            None => Ok(self.get_docs().len()),
         }
     }
 
@@ -229,18 +282,24 @@ pub trait Corpus : WriteableCorpus + ReadableCorpus {
     /// # Arguments
     ///
     /// * `layer` - The name of the layer to index
-    fn create_index(&mut self, layer: &str) -> TeangaResult<()> where Self: Sized {
+    fn create_index(&mut self, layer: &str) -> TeangaResult<()>
+    where
+        Self: Sized,
+    {
         if !self.get_meta().contains_key(layer) {
             return Err(TeangaError::LayerNotFoundError(layer.to_string()));
         }
-        let mut index : HashMap<TeangaData, Vec<String>> = HashMap::new();
+        let mut index: HashMap<TeangaData, Vec<String>> = HashMap::new();
         for doc_id in self.get_docs() {
             let doc = self.get_doc_by_id(&doc_id)?;
             if let Some(data) = doc.data(layer, self.get_meta()) {
                 let mut seen = std::collections::HashSet::new();
                 for val in data {
                     if seen.insert(val.clone()) {
-                        index.entry(val).or_insert_with(Vec::new).push(doc_id.clone());
+                        index
+                            .entry(val)
+                            .or_insert_with(Vec::new)
+                            .push(doc_id.clone());
                     }
                 }
             }
@@ -280,7 +339,11 @@ pub trait Corpus : WriteableCorpus + ReadableCorpus {
     ///
     /// * `layer` - The name of the layer to set the index for
     /// * `index` - The mapping from data values to document IDs
-    fn set_index(&mut self, layer: String, index: HashMap<TeangaData, Vec<String>>) -> TeangaResult<()>;
+    fn set_index(
+        &mut self,
+        layer: String,
+        index: HashMap<TeangaData, Vec<String>>,
+    ) -> TeangaResult<()>;
 
     /// Get a mutable reference to the inverted index for a layer, if one
     /// has been created. This is used internally to keep indexes in sync
@@ -295,17 +358,27 @@ pub trait Corpus : WriteableCorpus + ReadableCorpus {
 /// Update all indexes to reflect a document that has just been added (or
 /// whose content has changed). Only layers that already have an index are
 /// affected.
-pub(crate) fn index_add_doc<C: Corpus>(corpus: &mut C, id: &str, doc: &Document) -> TeangaResult<()> {
-    let layers : Vec<String> = corpus.get_meta().keys()
+pub(crate) fn index_add_doc<C: Corpus>(
+    corpus: &mut C,
+    id: &str,
+    doc: &Document,
+) -> TeangaResult<()> {
+    let layers: Vec<String> = corpus
+        .get_meta()
+        .keys()
         .filter(|l| corpus.has_index(l))
-        .cloned().collect();
+        .cloned()
+        .collect();
     for layer in layers {
         if let Some(data) = doc.data(&layer, corpus.get_meta()) {
             let mut seen = std::collections::HashSet::new();
             if let Some(index) = corpus.get_index_mut(&layer) {
                 for val in data {
                     if seen.insert(val.clone()) {
-                        index.entry(val).or_insert_with(Vec::new).push(id.to_string());
+                        index
+                            .entry(val)
+                            .or_insert_with(Vec::new)
+                            .push(id.to_string());
                     }
                 }
             }
@@ -317,10 +390,17 @@ pub(crate) fn index_add_doc<C: Corpus>(corpus: &mut C, id: &str, doc: &Document)
 /// Update all indexes to remove a document that is about to be removed (or
 /// whose previous content is being replaced). Only layers that already
 /// have an index are affected.
-pub(crate) fn index_remove_doc<C: Corpus>(corpus: &mut C, id: &str, doc: &Document) -> TeangaResult<()> {
-    let layers : Vec<String> = corpus.get_meta().keys()
+pub(crate) fn index_remove_doc<C: Corpus>(
+    corpus: &mut C,
+    id: &str,
+    doc: &Document,
+) -> TeangaResult<()> {
+    let layers: Vec<String> = corpus
+        .get_meta()
+        .keys()
         .filter(|l| corpus.has_index(l))
-        .cloned().collect();
+        .cloned()
+        .collect();
     for layer in layers {
         if let Some(data) = doc.data(&layer, corpus.get_meta()) {
             if let Some(index) = corpus.get_index_mut(&layer) {
@@ -338,9 +418,9 @@ pub(crate) fn index_remove_doc<C: Corpus>(corpus: &mut C, id: &str, doc: &Docume
 /// A corpus where the metadata and order can be changed
 pub trait WriteableCorpus {
     /// Set the metadata of the corpus
-    fn set_meta(&mut self, meta : HashMap<String, LayerDesc>) -> TeangaResult<()>;
+    fn set_meta(&mut self, meta: HashMap<String, LayerDesc>) -> TeangaResult<()>;
     /// Set the order of the documents in the corpus
-    fn set_order(&mut self, order : Vec<String>) -> TeangaResult<()>;
+    fn set_order(&mut self, order: Vec<String>) -> TeangaResult<()>;
     /// Add a document to this corpus
     ///
     /// # Arguments
@@ -350,15 +430,19 @@ pub trait WriteableCorpus {
     /// # Returns
     ///
     /// The ID of the document
-    fn add_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, content : DC) -> TeangaResult<String>;
-
+    fn add_doc<D: IntoLayer, DC: DocumentContent<D>>(
+        &mut self,
+        content: DC,
+    ) -> TeangaResult<String>;
 }
 
 pub trait ReadableCorpus {
     /// Iterate over all documents in the corpus
-    fn iter_docs<'a>(&'a self) -> Box<dyn Iterator<Item=TeangaResult<Document>> + 'a>;
+    fn iter_docs<'a>(&'a self) -> Box<dyn Iterator<Item = TeangaResult<Document>> + 'a>;
     /// Iterate over all documents in the corpus with their IDs
-    fn iter_doc_ids<'a>(&'a self) -> Box<dyn Iterator<Item=TeangaResult<(String, Document)>> + 'a>;
+    fn iter_doc_ids<'a>(
+        &'a self,
+    ) -> Box<dyn Iterator<Item = TeangaResult<(String, Document)>> + 'a>;
     /// Get the layer metadata
     fn get_meta(&self) -> &HashMap<String, LayerDesc>;
 }
@@ -369,7 +453,7 @@ pub struct SimpleCorpus {
     meta: HashMap<String, LayerDesc>,
     order: Vec<String>,
     content: HashMap<String, Document>,
-    indexes: HashMap<String, HashMap<TeangaData, Vec<String>>>
+    indexes: HashMap<String, HashMap<TeangaData, Vec<String>>>,
 }
 
 impl SimpleCorpus {
@@ -385,29 +469,46 @@ impl SimpleCorpus {
 
     /// Read the metadata from a YAML file
     pub fn read_yaml_header<'de, R: std::io::Read>(&mut self, r: R) -> Result<(), TeangaYamlError> {
-        Ok(crate::serialization::read_yaml_with_config(r, self, SerializationSettings::new().header_only())?)
+        Ok(crate::serialization::read_yaml_with_config(
+            r,
+            self,
+            SerializationSettings::new().header_only(),
+        )?)
     }
-
 }
 
 impl Corpus for SimpleCorpus {
-    fn add_layer_meta(&mut self, name: String, layer_type: LayerType, 
-        base: Option<String>, data: Option<DataType>, link_types: Option<Vec<String>>, 
-        target: Option<String>, default: Option<Layer>,
-        meta : HashMap<String, Value>) -> TeangaResult<()> {
-        self.meta.insert(name.clone(), LayerDesc {
-            layer_type,
-            base,
-            data,
-            link_types,
-            target,
-            default,
-            meta
-        });
+    fn add_layer_meta(
+        &mut self,
+        name: String,
+        layer_type: LayerType,
+        base: Option<String>,
+        data: Option<DataType>,
+        link_types: Option<Vec<String>>,
+        target: Option<String>,
+        default: Option<Layer>,
+        meta: HashMap<String, Value>,
+    ) -> TeangaResult<()> {
+        self.meta.insert(
+            name.clone(),
+            LayerDesc {
+                layer_type,
+                base,
+                data,
+                link_types,
+                target,
+                default,
+                meta,
+            },
+        );
         Ok(())
     }
 
-    fn update_doc<D : IntoLayer, DC: DocumentContent<D>>(&mut self, id : &str, content : DC) -> TeangaResult<String> {
+    fn update_doc<D: IntoLayer, DC: DocumentContent<D>>(
+        &mut self,
+        id: &str,
+        content: DC,
+    ) -> TeangaResult<String> {
         let old_doc = self.content.get(id).cloned();
         let doc = match self.get_doc_by_id(id) {
             Ok(mut doc) => {
@@ -415,15 +516,19 @@ impl Corpus for SimpleCorpus {
                     if key.starts_with("_") {
                         doc.set(&key, layer.into_meta_layer()?);
                     } else {
-                        let layer_desc = self.meta.get(&key).ok_or_else(|| TeangaError::ModelError(
-                                format!("Layer {} is not described in meta", key)))?;
+                        let layer_desc = self.meta.get(&key).ok_or_else(|| {
+                            TeangaError::ModelError(format!(
+                                "Layer {} is not described in meta",
+                                key
+                            ))
+                        })?;
                         doc.set(&key, layer.into_layer(layer_desc)?);
                     }
                 }
                 doc
-            },
+            }
             Err(TeangaError::DocumentNotFoundError) => Document::new(content, &self.meta)?,
-            Err(e) => return Err(e)
+            Err(e) => return Err(e),
         };
         let new_id = teanga_id_update(id, &self.order, &doc);
         if let Some(old_doc) = &old_doc {
@@ -431,8 +536,9 @@ impl Corpus for SimpleCorpus {
         }
         index_add_doc(self, &new_id, &doc)?;
         if id != new_id {
-            let n = self.order.iter().position(|x| x == id).ok_or_else(|| TeangaError::ModelError(
-                    format!("Cannot find document in order vector: {}", id)))?;
+            let n = self.order.iter().position(|x| x == id).ok_or_else(|| {
+                TeangaError::ModelError(format!("Cannot find document in order vector: {}", id))
+            })?;
             self.order.remove(n);
             self.order.insert(n, new_id.clone());
             self.content.remove(id);
@@ -443,7 +549,7 @@ impl Corpus for SimpleCorpus {
         Ok(new_id)
     }
 
-    fn remove_doc(&mut self, id : &str) -> TeangaResult<()> {
+    fn remove_doc(&mut self, id: &str) -> TeangaResult<()> {
         if let Some(doc) = self.content.get(id).cloned() {
             index_remove_doc(self, id, &doc)?;
         }
@@ -452,12 +558,10 @@ impl Corpus for SimpleCorpus {
         Ok(())
     }
 
-    fn get_doc_by_id(&self, id : &str) -> TeangaResult<Document> {
+    fn get_doc_by_id(&self, id: &str) -> TeangaResult<Document> {
         match self.content.get(id) {
-            Some(doc) => {
-                Ok(doc.clone())
-            },
-            None => Err(TeangaError::DocumentNotFoundError)
+            Some(doc) => Ok(doc.clone()),
+            None => Err(TeangaError::DocumentNotFoundError),
         }
     }
 
@@ -478,7 +582,11 @@ impl Corpus for SimpleCorpus {
         self.indexes.get(layer)
     }
 
-    fn set_index(&mut self, layer: String, index: HashMap<TeangaData, Vec<String>>) -> TeangaResult<()> {
+    fn set_index(
+        &mut self,
+        layer: String,
+        index: HashMap<TeangaData, Vec<String>>,
+    ) -> TeangaResult<()> {
         self.indexes.insert(layer, index);
         Ok(())
     }
@@ -489,16 +597,19 @@ impl Corpus for SimpleCorpus {
 }
 
 impl WriteableCorpus for SimpleCorpus {
-    fn set_meta(&mut self, meta : HashMap<String, LayerDesc>) -> TeangaResult<()> {
+    fn set_meta(&mut self, meta: HashMap<String, LayerDesc>) -> TeangaResult<()> {
         self.meta = meta;
         Ok(())
     }
 
-    fn set_order(&mut self, order : Vec<String>) -> TeangaResult<()> {
+    fn set_order(&mut self, order: Vec<String>) -> TeangaResult<()> {
         self.order = order;
         Ok(())
     }
-    fn add_doc<D : IntoLayer, DC : DocumentContent<D>>(&mut self, content : DC) -> TeangaResult<String> {
+    fn add_doc<D: IntoLayer, DC: DocumentContent<D>>(
+        &mut self,
+        content: DC,
+    ) -> TeangaResult<String> {
         let doc = Document::new(content, &self.meta)?;
         let id = teanga_id(&self.order, &doc);
         self.order.push(id.clone());
@@ -506,18 +617,26 @@ impl WriteableCorpus for SimpleCorpus {
         self.content.insert(id.clone(), doc);
         Ok(id)
     }
-
-
 }
 
 impl ReadableCorpus for SimpleCorpus {
     /// Iterate over all documents in the corpus
-    fn iter_docs<'a>(&'a self) -> Box<dyn Iterator<Item=TeangaResult<Document>> + 'a> {
-        Box::new(self.get_docs().into_iter().map(move |x| self.get_doc_by_id(&x)))
+    fn iter_docs<'a>(&'a self) -> Box<dyn Iterator<Item = TeangaResult<Document>> + 'a> {
+        Box::new(
+            self.get_docs()
+                .into_iter()
+                .map(move |x| self.get_doc_by_id(&x)),
+        )
     }
     /// Iterate over all documents in the corpus with their IDs
-    fn iter_doc_ids<'a>(&'a self) -> Box<dyn Iterator<Item=TeangaResult<(String, Document)>> + 'a> {
-        Box::new(self.get_docs().into_iter().map(move |x| self.get_doc_by_id(&x).map(|d| (x, d))))
+    fn iter_doc_ids<'a>(
+        &'a self,
+    ) -> Box<dyn Iterator<Item = TeangaResult<(String, Document)>> + 'a> {
+        Box::new(
+            self.get_docs()
+                .into_iter()
+                .map(move |x| self.get_doc_by_id(&x).map(|d| (x, d))),
+        )
     }
 
     fn get_meta(&self) -> &HashMap<String, LayerDesc> {
@@ -525,9 +644,7 @@ impl ReadableCorpus for SimpleCorpus {
     }
 }
 
-
-
-#[derive(Debug,Clone,PartialEq, Serialize,Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 /// Any valid JSON/YAML value
 pub enum Value {
@@ -536,7 +653,7 @@ pub enum Value {
     Float(f64),
     String(String),
     Array(Vec<Value>),
-    Object(HashMap<String, Value>)
+    Object(HashMap<String, Value>),
 }
 
 /// Generate a unique ID for a document
@@ -549,28 +666,28 @@ pub enum Value {
 /// # Returns
 ///
 /// A unique ID for the document
-pub fn teanga_id(existing_keys : &Vec<String>, doc : &Document) -> String {
-let mut hasher = Sha256::new();
-for key in doc.content.keys().sorted() {
-    match doc.content.get(key).unwrap() {
-        Layer::Characters(val) => {
-            hasher.update(key.as_bytes());
-            hasher.update(vec![0u8]);
-            hasher.update(val.as_bytes());
-            hasher.update(vec![0u8]);
+pub fn teanga_id(existing_keys: &Vec<String>, doc: &Document) -> String {
+    let mut hasher = Sha256::new();
+    for key in doc.content.keys().sorted() {
+        match doc.content.get(key).unwrap() {
+            Layer::Characters(val) => {
+                hasher.update(key.as_bytes());
+                hasher.update(vec![0u8]);
+                hasher.update(val.as_bytes());
+                hasher.update(vec![0u8]);
+            }
+            _ => (),
         }
-        _ => ()
     }
-}
-let code = STANDARD.encode(hasher.finalize().as_slice());
-let mut n = 4;
-while existing_keys.contains(&code[..n].to_string()) && n < code.len() {
-    n += 1;
-}
-return code[..n].to_string();
+    let code = STANDARD.encode(hasher.finalize().as_slice());
+    let mut n = 4;
+    while existing_keys.contains(&code[..n].to_string()) && n < code.len() {
+        n += 1;
+    }
+    return code[..n].to_string();
 }
 
-/// Generate a new unique ID for a document. 
+/// Generate a new unique ID for a document.
 /// This is useful when updating a document
 /// as it treats `prev_val` as if it did not occur in existing_keys.
 ///
@@ -583,25 +700,26 @@ return code[..n].to_string();
 /// # Returns
 ///
 /// A unique ID for the document
-pub fn teanga_id_update(prev_val : &str, existing_keys: &Vec<String>, doc : &Document) -> String {
-let mut hasher = Sha256::new();
-for key in doc.content.keys().sorted() {
-    match doc.content.get(key).unwrap() {
-        Layer::Characters(val) => {
-            hasher.update(key.as_bytes());
-            hasher.update(vec![0u8]);
-            hasher.update(val.as_bytes());
-            hasher.update(vec![0u8]);
+pub fn teanga_id_update(prev_val: &str, existing_keys: &Vec<String>, doc: &Document) -> String {
+    let mut hasher = Sha256::new();
+    for key in doc.content.keys().sorted() {
+        match doc.content.get(key).unwrap() {
+            Layer::Characters(val) => {
+                hasher.update(key.as_bytes());
+                hasher.update(vec![0u8]);
+                hasher.update(val.as_bytes());
+                hasher.update(vec![0u8]);
+            }
+            _ => (),
         }
-        _ => ()
     }
-}
-let code = STANDARD.encode(hasher.finalize().as_slice());
-let mut n = 4;
-while *prev_val != code[..n] && existing_keys.contains(&code[..n].to_string()) && n < code.len() {
-    n += 1;
-}
-return code[..n].to_string();
+    let code = STANDARD.encode(hasher.finalize().as_slice());
+    let mut n = 4;
+    while *prev_val != code[..n] && existing_keys.contains(&code[..n].to_string()) && n < code.len()
+    {
+        n += 1;
+    }
+    return code[..n].to_string();
 }
 
 /// An error type for Teanga
@@ -683,7 +801,7 @@ pub enum TeangaJsonError {
     IOError(#[from] std::io::Error),
     /// Model or other error
     #[error("Teanga error: {0}")]
-    TeangaError(#[from] TeangaError)
+    TeangaError(#[from] TeangaError),
 }
 
 /// Errors when reading or writing YAML
@@ -700,9 +818,8 @@ pub enum TeangaYamlError {
     UTFError(#[from] std::string::FromUtf8Error),
     /// Errors from Serde
     #[error("Serialization error: {0}")]
-    SerdeError(#[from] crate::serialization::SerializeError)
+    SerdeError(#[from] crate::serialization::SerializeError),
 }
-
 
 #[cfg(test)]
 mod test {
@@ -712,8 +829,12 @@ mod test {
     fn test_teanga_id_1() {
         let existing_keys = Vec::new();
         let doc = Document {
-            content: vec![("text".to_string(), 
-                         Layer::Characters("This is a document.".to_string()))].into_iter().collect()
+            content: vec![(
+                "text".to_string(),
+                Layer::Characters("This is a document.".to_string()),
+            )]
+            .into_iter()
+            .collect(),
         };
         let expected = "Kjco";
         assert_eq!(teanga_id(&existing_keys, &doc), expected);
@@ -723,37 +844,78 @@ mod test {
     fn test_teanga_id_2() {
         let existing_keys = Vec::new();
         let doc = Document {
-            content: vec![("text".to_string(), 
-                         Layer::Characters("This is a document.".to_string())),
-                         ("fileid".to_string(),
-                         Layer::Characters("doc1".to_string()))].into_iter().collect()
+            content: vec![
+                (
+                    "text".to_string(),
+                    Layer::Characters("This is a document.".to_string()),
+                ),
+                ("fileid".to_string(), Layer::Characters("doc1".to_string())),
+            ]
+            .into_iter()
+            .collect(),
         };
         let expected = "fexV";
         assert_eq!(teanga_id(&existing_keys, &doc), expected);
     }
 
-
     #[test]
     fn test_serialize_layer() {
-        let layer = Layer::L1S(vec![(1,"a".to_string()),(2,"b".to_string())]);
+        let layer = Layer::L1S(vec![(1, "a".to_string()), (2, "b".to_string())]);
         let s = serde_json::to_string(&layer).unwrap();
         assert_eq!(s, r#"[[1,"a"],[2,"b"]]"#);
-        let layer2 : Layer = serde_json::from_str(&s).unwrap();
+        let layer2: Layer = serde_json::from_str(&s).unwrap();
         assert_eq!(layer, layer2);
         let layer3 = Layer::L1(vec![0]);
-        let layer4 : Layer = serde_json::from_str("[0]").unwrap();
+        let layer4: Layer = serde_json::from_str("[0]").unwrap();
         assert_eq!(layer3, layer4);
     }
 
     #[test]
     fn test_update_doc() {
         let mut corpus = SimpleCorpus::new();
-        corpus.add_layer_meta("text".to_string(), LayerType::characters, None, None, None, None, None, HashMap::new()).unwrap();
-        corpus.add_layer_meta("words".to_string(), LayerType::span, Some("text".to_string()), None, None, None, None, HashMap::new()).unwrap();
-        corpus.add_layer_meta("pos".to_string(), LayerType::seq, Some("words".to_string()), None, None, None, None, HashMap::new()).unwrap();
+        corpus
+            .add_layer_meta(
+                "text".to_string(),
+                LayerType::characters,
+                None,
+                None,
+                None,
+                None,
+                None,
+                HashMap::new(),
+            )
+            .unwrap();
+        corpus
+            .add_layer_meta(
+                "words".to_string(),
+                LayerType::span,
+                Some("text".to_string()),
+                None,
+                None,
+                None,
+                None,
+                HashMap::new(),
+            )
+            .unwrap();
+        corpus
+            .add_layer_meta(
+                "pos".to_string(),
+                LayerType::seq,
+                Some("words".to_string()),
+                None,
+                None,
+                None,
+                None,
+                HashMap::new(),
+            )
+            .unwrap();
         let id = corpus.add_doc(vec![("text".to_string(), "test")]).unwrap();
-        corpus.update_doc(&id, vec![("words".to_string(), vec![(0,1)])]).unwrap();
-        corpus.update_doc(&id, vec![("pos".to_string(), vec!["N"])]).unwrap();
+        corpus
+            .update_doc(&id, vec![("words".to_string(), vec![(0, 1)])])
+            .unwrap();
+        corpus
+            .update_doc(&id, vec![("pos".to_string(), vec!["N"])])
+            .unwrap();
         let doc = corpus.get_doc_by_id(&id).unwrap();
         assert!(doc.get("words").is_some());
         assert!(doc.get("pos").is_some());
