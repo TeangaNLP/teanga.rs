@@ -188,6 +188,11 @@ pub trait Corpus : WriteableCorpus + ReadableCorpus {
     } 
     /// Search the corpus for documents that match a query
     ///
+    /// If an index (see [`Corpus::create_index`]) exists for a layer
+    /// referenced by an equality condition in the query, it is used to
+    /// narrow down the documents that need to be checked instead of
+    /// scanning the whole corpus.
+    ///
     /// # Arguments
     ///
     /// * `query` - The query to match
@@ -195,12 +200,139 @@ pub trait Corpus : WriteableCorpus + ReadableCorpus {
     /// # Returns
     ///
     /// An iterator of IDs and documents that match the query
-    fn search<'a>(&'a self, query : Query) -> Box<dyn Iterator<Item=TeangaResult<(String, Document)>> + 'a> {
-        Box::new(self.iter_doc_ids().filter(move |x| match x {
-            Ok((_, doc)) => query.matches(doc, self.get_meta()),
-            Err(_) => false
-        }))
+    fn search<'a>(&'a self, query : Query) -> Box<dyn Iterator<Item=TeangaResult<(String, Document)>> + 'a> where Self: Sized {
+        match query.candidate_ids(self) {
+            Some(ids) => {
+                Box::new(ids.into_iter()
+                    .map(move |id| self.get_doc_by_id(&id).map(|doc| (id, doc)))
+                    .filter(move |x| match x {
+                        Ok((_, doc)) => query.matches(doc, self.get_meta()),
+                        Err(_) => false
+                    }))
+            },
+            None => {
+                Box::new(self.iter_doc_ids().filter(move |x| match x {
+                    Ok((_, doc)) => query.matches(doc, self.get_meta()),
+                    Err(_) => false
+                }))
+            }
+        }
     }
+
+    /// Create an inverted index for a layer: a mapping from each distinct
+    /// data value in the layer (as returned by [`Document::data`]) to the
+    /// IDs of the documents that contain it. This is analogous to SQL's
+    /// `CREATE INDEX` and can be used by [`Corpus::search`] to avoid
+    /// scanning every document in the corpus for queries that test a
+    /// layer's value for equality.
+    ///
+    /// # Arguments
+    ///
+    /// * `layer` - The name of the layer to index
+    fn create_index(&mut self, layer: &str) -> TeangaResult<()> where Self: Sized {
+        if !self.get_meta().contains_key(layer) {
+            return Err(TeangaError::LayerNotFoundError(layer.to_string()));
+        }
+        let mut index : HashMap<TeangaData, Vec<String>> = HashMap::new();
+        for doc_id in self.get_docs() {
+            let doc = self.get_doc_by_id(&doc_id)?;
+            if let Some(data) = doc.data(layer, self.get_meta()) {
+                let mut seen = std::collections::HashSet::new();
+                for val in data {
+                    if seen.insert(val.clone()) {
+                        index.entry(val).or_insert_with(Vec::new).push(doc_id.clone());
+                    }
+                }
+            }
+        }
+        self.set_index(layer.to_string(), index)
+    }
+
+    /// Remove the index on a layer, if one exists. This does not fail if
+    /// no index exists for the layer.
+    ///
+    /// # Arguments
+    ///
+    /// * `layer` - The name of the layer to remove the index for
+    fn drop_index(&mut self, layer: &str) -> TeangaResult<()>;
+
+    /// Check whether a layer currently has an index
+    ///
+    /// # Arguments
+    ///
+    /// * `layer` - The name of the layer to check
+    fn has_index(&self, layer: &str) -> bool {
+        self.get_index(layer).is_some()
+    }
+
+    /// Get the inverted index for a layer, if one has been created
+    ///
+    /// # Arguments
+    ///
+    /// * `layer` - The name of the layer to get the index for
+    fn get_index(&self, layer: &str) -> Option<&HashMap<TeangaData, Vec<String>>>;
+
+    /// Directly set the inverted index for a layer. This is used
+    /// internally by [`Corpus::create_index`], but may also be used to
+    /// install a precomputed index.
+    ///
+    /// # Arguments
+    ///
+    /// * `layer` - The name of the layer to set the index for
+    /// * `index` - The mapping from data values to document IDs
+    fn set_index(&mut self, layer: String, index: HashMap<TeangaData, Vec<String>>) -> TeangaResult<()>;
+
+    /// Get a mutable reference to the inverted index for a layer, if one
+    /// has been created. This is used internally to keep indexes in sync
+    /// as documents are added, updated or removed.
+    ///
+    /// # Arguments
+    ///
+    /// * `layer` - The name of the layer to get the index for
+    fn get_index_mut(&mut self, layer: &str) -> Option<&mut HashMap<TeangaData, Vec<String>>>;
+}
+
+/// Update all indexes to reflect a document that has just been added (or
+/// whose content has changed). Only layers that already have an index are
+/// affected.
+pub(crate) fn index_add_doc<C: Corpus>(corpus: &mut C, id: &str, doc: &Document) -> TeangaResult<()> {
+    let layers : Vec<String> = corpus.get_meta().keys()
+        .filter(|l| corpus.has_index(l))
+        .cloned().collect();
+    for layer in layers {
+        if let Some(data) = doc.data(&layer, corpus.get_meta()) {
+            let mut seen = std::collections::HashSet::new();
+            if let Some(index) = corpus.get_index_mut(&layer) {
+                for val in data {
+                    if seen.insert(val.clone()) {
+                        index.entry(val).or_insert_with(Vec::new).push(id.to_string());
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Update all indexes to remove a document that is about to be removed (or
+/// whose previous content is being replaced). Only layers that already
+/// have an index are affected.
+pub(crate) fn index_remove_doc<C: Corpus>(corpus: &mut C, id: &str, doc: &Document) -> TeangaResult<()> {
+    let layers : Vec<String> = corpus.get_meta().keys()
+        .filter(|l| corpus.has_index(l))
+        .cloned().collect();
+    for layer in layers {
+        if let Some(data) = doc.data(&layer, corpus.get_meta()) {
+            if let Some(index) = corpus.get_index_mut(&layer) {
+                for val in data {
+                    if let Some(ids) = index.get_mut(&val) {
+                        ids.retain(|x| x != id);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// A corpus where the metadata and order can be changed
@@ -236,7 +368,8 @@ pub trait ReadableCorpus {
 pub struct SimpleCorpus {
     meta: HashMap<String, LayerDesc>,
     order: Vec<String>,
-    content: HashMap<String, Document>
+    content: HashMap<String, Document>,
+    indexes: HashMap<String, HashMap<TeangaData, Vec<String>>>
 }
 
 impl SimpleCorpus {
@@ -246,6 +379,7 @@ impl SimpleCorpus {
             meta: HashMap::new(),
             order: Vec::new(),
             content: HashMap::new(),
+            indexes: HashMap::new(),
         }
     }
 
@@ -274,6 +408,7 @@ impl Corpus for SimpleCorpus {
     }
 
     fn update_doc<D : IntoLayer, DC: DocumentContent<D>>(&mut self, id : &str, content : DC) -> TeangaResult<String> {
+        let old_doc = self.content.get(id).cloned();
         let doc = match self.get_doc_by_id(id) {
             Ok(mut doc) => {
                 for (key, layer) in content {
@@ -291,6 +426,10 @@ impl Corpus for SimpleCorpus {
             Err(e) => return Err(e)
         };
         let new_id = teanga_id_update(id, &self.order, &doc);
+        if let Some(old_doc) = &old_doc {
+            index_remove_doc(self, id, old_doc)?;
+        }
+        index_add_doc(self, &new_id, &doc)?;
         if id != new_id {
             let n = self.order.iter().position(|x| x == id).ok_or_else(|| TeangaError::ModelError(
                     format!("Cannot find document in order vector: {}", id)))?;
@@ -305,6 +444,9 @@ impl Corpus for SimpleCorpus {
     }
 
     fn remove_doc(&mut self, id : &str) -> TeangaResult<()> {
+        if let Some(doc) = self.content.get(id).cloned() {
+            index_remove_doc(self, id, &doc)?;
+        }
         self.content.remove(id);
         self.order.retain(|x| x != id);
         Ok(())
@@ -326,6 +468,24 @@ impl Corpus for SimpleCorpus {
     fn get_order(&self) -> &Vec<String> {
         &self.order
     }
+
+    fn drop_index(&mut self, layer: &str) -> TeangaResult<()> {
+        self.indexes.remove(layer);
+        Ok(())
+    }
+
+    fn get_index(&self, layer: &str) -> Option<&HashMap<TeangaData, Vec<String>>> {
+        self.indexes.get(layer)
+    }
+
+    fn set_index(&mut self, layer: String, index: HashMap<TeangaData, Vec<String>>) -> TeangaResult<()> {
+        self.indexes.insert(layer, index);
+        Ok(())
+    }
+
+    fn get_index_mut(&mut self, layer: &str) -> Option<&mut HashMap<TeangaData, Vec<String>>> {
+        self.indexes.get_mut(layer)
+    }
 }
 
 impl WriteableCorpus for SimpleCorpus {
@@ -342,6 +502,7 @@ impl WriteableCorpus for SimpleCorpus {
         let doc = Document::new(content, &self.meta)?;
         let id = teanga_id(&self.order, &doc);
         self.order.push(id.clone());
+        index_add_doc(self, &id, &doc)?;
         self.content.insert(id.clone(), doc);
         Ok(id)
     }

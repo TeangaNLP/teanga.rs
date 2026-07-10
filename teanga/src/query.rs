@@ -12,7 +12,7 @@
 //!     .build();
 //! ```
 use std::collections::{HashMap, HashSet};
-use crate::{Document, LayerDesc, TeangaData};
+use crate::{Corpus, Document, LayerDesc, TeangaData};
 use regex::Regex;
 
 /// A query for searching a corpus
@@ -119,6 +119,46 @@ impl Query {
             Query::Exists(field) => {
                 document.get(field).is_some()
             }
+        }
+    }
+
+    /// Try to use the corpus's indexes (see [`Corpus::create_index`]) to
+    /// compute a set of candidate document IDs that could possibly match
+    /// this query, without scanning every document in the corpus.
+    ///
+    /// Returns `None` if no index can help answer this query (in which
+    /// case the corpus should be scanned in full), or `Some(ids)` with a
+    /// (possibly empty) list of document IDs that should be checked
+    /// against [`Query::matches`].
+    pub fn candidate_ids<C: Corpus>(&self, corpus: &C) -> Option<Vec<String>> {
+        match self {
+            Query::Value(layer, value) => {
+                let index = corpus.get_index(layer)?;
+                Some(index.get(value).cloned().unwrap_or_default())
+            },
+            Query::In(layer, values) => {
+                let index = corpus.get_index(layer)?;
+                let mut ids = HashSet::new();
+                for value in values {
+                    if let Some(matching) = index.get(value) {
+                        ids.extend(matching.iter().cloned());
+                    }
+                }
+                Some(ids.into_iter().collect())
+            },
+            Query::And(queries) => {
+                queries.iter()
+                    .filter_map(|q| q.candidate_ids(corpus))
+                    .min_by_key(|ids| ids.len())
+            },
+            Query::Or(queries) => {
+                let mut ids = HashSet::new();
+                for q in queries {
+                    ids.extend(q.candidate_ids(corpus)?);
+                }
+                Some(ids.into_iter().collect())
+            },
+            _ => None
         }
     }
 }
@@ -321,7 +361,7 @@ impl QueryBuilder {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{Corpus, SimpleCorpus, LayerType, DataType};
+    use crate::{Corpus, ReadableCorpus, SimpleCorpus, LayerType, DataType};
 
     #[test]
     fn test_query() {
@@ -374,6 +414,109 @@ mod test {
             .build();
         let mut iter = corpus.search(query);
         assert!(iter.next().is_some());
+    }
+
+    fn build_pos_corpus() -> SimpleCorpus {
+        let mut corpus = SimpleCorpus::new();
+        corpus.build_layer("text").add().unwrap();
+        corpus.build_layer("words")
+            .layer_type(LayerType::span)
+            .base("text").add().unwrap();
+        corpus.build_layer("pos")
+            .layer_type(LayerType::seq)
+            .base("words")
+            .data(DataType::String).add().unwrap();
+        corpus.build_doc()
+            .layer("text", "The quick fox").unwrap()
+            .layer("words", vec![(0, 3), (4, 9), (10, 13)]).unwrap()
+            .layer("pos", vec!["det", "adj", "noun"]).unwrap()
+            .add().unwrap();
+        corpus.build_doc()
+            .layer("text", "A lazy dog").unwrap()
+            .layer("words", vec![(0, 1), (2, 6), (7, 10)]).unwrap()
+            .layer("pos", vec!["det", "adj", "noun"]).unwrap()
+            .add().unwrap();
+        corpus.build_doc()
+            .layer("text", "Birds fly").unwrap()
+            .layer("words", vec![(0, 5), (6, 9)]).unwrap()
+            .layer("pos", vec!["noun", "verb"]).unwrap()
+            .add().unwrap();
+        corpus
+    }
+
+    #[test]
+    fn test_search_uses_index() {
+        let mut corpus = build_pos_corpus();
+        corpus.create_index("pos").unwrap();
+        assert!(corpus.has_index("pos"));
+
+        let indexed : Vec<String> = corpus.search(QueryBuilder::new()
+            .value("pos", "verb".to_string())
+            .build())
+            .map(|r| r.unwrap().0)
+            .collect();
+
+        corpus.drop_index("pos").unwrap();
+        assert!(!corpus.has_index("pos"));
+
+        let scanned : Vec<String> = corpus.search(QueryBuilder::new()
+            .value("pos", "verb".to_string())
+            .build())
+            .map(|r| r.unwrap().0)
+            .collect();
+
+        assert_eq!(indexed.len(), 1);
+        assert_eq!(indexed, scanned);
+    }
+
+    #[test]
+    fn test_index_stays_in_sync_with_mutations() {
+        let mut corpus = build_pos_corpus();
+        corpus.create_index("pos").unwrap();
+
+        // Removing a document should drop it from the index
+        let doc_ids = corpus.get_docs();
+        let birds_id = doc_ids.iter().find(|id| {
+            corpus.get_doc_by_id(id).unwrap().text("text", corpus.get_meta()).unwrap() == vec!["Birds fly"]
+        }).unwrap().clone();
+        corpus.remove_doc(&birds_id).unwrap();
+
+        let verbs : Vec<String> = corpus.search(QueryBuilder::new()
+            .value("pos", "verb".to_string())
+            .build())
+            .map(|r| r.unwrap().0)
+            .collect();
+        assert!(verbs.is_empty());
+
+        // Adding a new document should extend the index
+        let new_id = corpus.build_doc()
+            .layer("text", "Cats sleep").unwrap()
+            .layer("words", vec![(0, 4), (5, 10)]).unwrap()
+            .layer("pos", vec!["noun", "verb"]).unwrap()
+            .add().unwrap();
+
+        let verbs : Vec<String> = corpus.search(QueryBuilder::new()
+            .value("pos", "verb".to_string())
+            .build())
+            .map(|r| r.unwrap().0)
+            .collect();
+        assert_eq!(verbs, vec![new_id.clone()]);
+
+        // Updating a document's indexed layer should move it in the index
+        let fox_id = corpus.get_docs().into_iter().find(|id| {
+            corpus.get_doc_by_id(id).unwrap().text("text", corpus.get_meta()).unwrap() == vec!["The quick fox"]
+        }).unwrap();
+        corpus.update_doc(&fox_id, vec![("pos".to_string(), vec!["det", "adj", "verb"])]).unwrap();
+
+        let mut verbs : Vec<String> = corpus.search(QueryBuilder::new()
+            .value("pos", "verb".to_string())
+            .build())
+            .map(|r| r.unwrap().0)
+            .collect();
+        verbs.sort();
+        let mut expected = vec![new_id, fox_id];
+        expected.sort();
+        assert_eq!(verbs, expected);
     }
 }
 

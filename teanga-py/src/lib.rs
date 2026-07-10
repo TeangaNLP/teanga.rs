@@ -3,7 +3,7 @@
 // License: Apache 2.0
 use pyo3::prelude::*;
 use ::teanga::disk_corpus::{DiskCorpus, PathAsDB};
-use ::teanga::{LayerDesc, LayerType, DataType, Value, Layer, Corpus, ReadableCorpus, SimpleCorpus, DocumentContent, Document};
+use ::teanga::{LayerDesc, LayerType, DataType, Value, Layer, Corpus, ReadableCorpus, SimpleCorpus, DocumentContent, Document, TeangaData};
 use std::collections::HashMap;
 
 mod cuac_py;
@@ -108,6 +108,34 @@ impl Corpus for PyCorpus {
             PyCorpus::Mem(corpus) => corpus.get_order()
         }
     }
+
+    fn drop_index(&mut self, layer: &str) -> TeangaResult<()> {
+        match self {
+            PyCorpus::Disk(corpus) => corpus.drop_index(layer),
+            PyCorpus::Mem(corpus) => corpus.drop_index(layer)
+        }
+    }
+
+    fn get_index(&self, layer: &str) -> Option<&HashMap<TeangaData, Vec<String>>> {
+        match self {
+            PyCorpus::Disk(corpus) => corpus.get_index(layer),
+            PyCorpus::Mem(corpus) => corpus.get_index(layer)
+        }
+    }
+
+    fn set_index(&mut self, layer: String, index: HashMap<TeangaData, Vec<String>>) -> TeangaResult<()> {
+        match self {
+            PyCorpus::Disk(corpus) => corpus.set_index(layer, index),
+            PyCorpus::Mem(corpus) => corpus.set_index(layer, index)
+        }
+    }
+
+    fn get_index_mut(&mut self, layer: &str) -> Option<&mut HashMap<TeangaData, Vec<String>>> {
+        match self {
+            PyCorpus::Disk(corpus) => corpus.get_index_mut(layer),
+            PyCorpus::Mem(corpus) => corpus.get_index_mut(layer)
+        }
+    }
 }
 
 #[pyclass(name="Corpus")]
@@ -203,6 +231,25 @@ impl PyDiskCorpus {
                 map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))?.0);
         }
         Ok(vec)
+    }
+
+    /// Create an index on a layer, mapping each distinct value in the
+    /// layer to the documents that contain it. This can significantly
+    /// speed up `search` queries that test this layer for equality.
+    fn create_index(&mut self, layer: &str) -> PyResult<()> {
+        self.0.create_index(layer)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))
+    }
+
+    /// Remove the index on a layer, if one exists
+    fn drop_index(&mut self, layer: &str) -> PyResult<()> {
+        self.0.drop_index(layer)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{}", e)))
+    }
+
+    /// Check whether a layer currently has an index
+    fn has_index(&self, layer: &str) -> bool {
+        self.0.has_index(layer)
     }
 }
 

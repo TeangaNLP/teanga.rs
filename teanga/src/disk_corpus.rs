@@ -22,6 +22,7 @@ const DOCUMENT_PREFIX : u8 = 0x00;
 const META_BYTES : [u8;1] = [0x01];
 const ORDER_BYTES : [u8;1] = [0x02];
 const INDEX_BYTES : [u8;1] = [0x03];
+const SEARCH_INDEX_BYTES : [u8;1] = [0x04];
 #[cfg(feature = "redb")]
 const TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("corpus");
 
@@ -31,6 +32,7 @@ pub struct DiskCorpus<D : DBImpl> {
     order: Vec<String>,
     compression_model: SupportedStringCompression,
     index: Index,
+    search_indexes: HashMap<String, HashMap<TeangaData, Vec<String>>>,
     db: D
 }
 
@@ -122,11 +124,16 @@ impl <D: DBImpl> DiskCorpus<D> {
                 .map_err(|e| TeangaError::ModelError(e.to_string()))?,
             None => Index::new()
         };
+        let search_indexes = match db.get(SEARCH_INDEX_BYTES.to_vec())? {
+            Some(bytes) => from_bytes::<HashMap<String, HashMap<TeangaData, Vec<String>>>>(bytes.as_ref())?,
+            None => HashMap::new()
+        };
         Ok(DiskCorpus {
             meta,
             order,
             compression_model,
             index,
+            search_indexes,
             db
         })
     }
@@ -174,6 +181,7 @@ impl <D: DBImpl> DiskCorpus<D> {
         self.db.insert(ORDER_BYTES.to_vec(), to_stdvec(&self.order)?)?;
         let index_bytes = self.index.to_bytes();
         self.db.insert(INDEX_BYTES.to_vec(), index_bytes)?;
+        self.db.insert(SEARCH_INDEX_BYTES.to_vec(), to_stdvec(&self.search_indexes)?)?;
         Ok(())
     }
 }
@@ -197,6 +205,7 @@ impl <DB : DBImpl> Corpus for DiskCorpus<DB> {
     }
 
     fn update_doc<D : IntoLayer, DC: DocumentContent<D>>(&mut self, id : &str, content : DC) -> TeangaResult<String> {
+        let old_doc = self.get(id)?;
         let doc = match self.get_doc_by_id(id) {
             Ok(mut doc) => {
                 for (key, layer) in content {
@@ -210,6 +219,10 @@ impl <DB : DBImpl> Corpus for DiskCorpus<DB> {
             Err(e) => return Err(e)
         };
         let new_id = teanga_id_update(id, &self.order, &doc);
+        if let Some(old_doc) = &old_doc {
+            index_remove_doc(self, id, old_doc)?;
+        }
+        index_add_doc(self, &new_id, &doc)?;
         if id != new_id {
             let n = self.order.iter().position(|x| x == id).ok_or_else(|| TeangaError::ModelError(
                 format!("Cannot find document in order vector: {}", id)))?;
@@ -227,6 +240,9 @@ impl <DB : DBImpl> Corpus for DiskCorpus<DB> {
     }
 
     fn remove_doc(&mut self, id : &str) -> TeangaResult<()> {
+        if let Some(doc) = self.get(id)? {
+            index_remove_doc(self, id, &doc)?;
+        }
         self.remove(id)
             .map_err(|e| TeangaError::ModelError(e.to_string()))?;
         self.order.retain(|x| x != id);
@@ -254,6 +270,24 @@ impl <DB : DBImpl> Corpus for DiskCorpus<DB> {
     fn get_order(&self) -> &Vec<String> {
         &self.order
     }
+
+    fn drop_index(&mut self, layer: &str) -> TeangaResult<()> {
+        self.search_indexes.remove(layer);
+        Ok(())
+    }
+
+    fn get_index(&self, layer: &str) -> Option<&HashMap<TeangaData, Vec<String>>> {
+        self.search_indexes.get(layer)
+    }
+
+    fn set_index(&mut self, layer: String, index: HashMap<TeangaData, Vec<String>>) -> TeangaResult<()> {
+        self.search_indexes.insert(layer, index);
+        Ok(())
+    }
+
+    fn get_index_mut(&mut self, layer: &str) -> Option<&mut HashMap<TeangaData, Vec<String>>> {
+        self.search_indexes.get_mut(layer)
+    }
 }
 
 
@@ -272,6 +306,7 @@ impl <DB : DBImpl> WriteableCorpus for DiskCorpus<DB> {
         let doc = Document::new(content, &self.meta)?;
         let id = teanga_id(&self.order, &doc);
         self.order.push(id.clone());
+        index_add_doc(self, &id, &doc)?;
         self.insert(id.clone(), doc)
             .map_err(|e| TeangaError::ModelError(e.to_string()))?;
         Ok(id)
@@ -308,6 +343,7 @@ impl <C : Clone + DBImpl> Clone for DiskCorpus<C> {
             order: self.order.clone(),
             compression_model: self.compression_model.clone(),
             index: self.index.clone(),
+            search_indexes: self.search_indexes.clone(),
             db: self.db.clone()
         }
     }
@@ -606,5 +642,46 @@ mod tests {
         drop(corpus);
         let corpus2 = DiskCorpus::new(&tmpfile).unwrap();
         assert!(!corpus2.get_meta().is_empty());
+    }
+
+    #[test]
+    fn test_disk_corpus_index() {
+        use crate::query::QueryBuilder;
+
+        let dir = tempfile::tempdir().unwrap();
+        let tmpfile = dir.path().join("db");
+        let (_id_a, id_b) = {
+            let mut corpus = DiskCorpus::new(&tmpfile).unwrap();
+            corpus.add_layer_meta("text".to_string(), LayerType::characters, None, None, None, None, None, HashMap::new()).unwrap();
+            corpus.add_layer_meta("words".to_string(), LayerType::span, Some("text".to_string()), None, None, None, None, HashMap::new()).unwrap();
+            corpus.add_layer_meta("cat".to_string(), LayerType::seq, Some("words".to_string()), Some(DataType::String), None, None, None, HashMap::new()).unwrap();
+            let id_a = corpus.add_doc(vec![
+                ("text".to_string(), Layer::Characters("cats".to_string())),
+                ("words".to_string(), Layer::L2(vec![(0,4)])),
+                ("cat".to_string(), Layer::LS(vec!["x".to_string()]))]).unwrap();
+            let id_b = corpus.add_doc(vec![
+                ("text".to_string(), Layer::Characters("dogs".to_string())),
+                ("words".to_string(), Layer::L2(vec![(0,4)])),
+                ("cat".to_string(), Layer::LS(vec!["y".to_string()]))]).unwrap();
+            corpus.create_index("cat").unwrap();
+            assert!(corpus.has_index("cat"));
+            let results : Vec<String> = corpus.search(QueryBuilder::new()
+                .value("cat", "x".to_string())
+                .build())
+                .map(|r| r.unwrap().0)
+                .collect();
+            assert_eq!(results, vec![id_a.clone()]);
+            (id_a, id_b)
+        };
+
+        // Reopen: the index should have been persisted to disk
+        let corpus2 = DiskCorpus::new(&tmpfile).unwrap();
+        assert!(corpus2.has_index("cat"));
+        let results : Vec<String> = corpus2.search(QueryBuilder::new()
+            .value("cat", "y".to_string())
+            .build())
+            .map(|r| r.unwrap().0)
+            .collect();
+        assert_eq!(results, vec![id_b]);
     }
 }

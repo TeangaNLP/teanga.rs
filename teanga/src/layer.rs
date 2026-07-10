@@ -626,7 +626,8 @@ impl Display for DataType {
 }
 
 /// A data value in a Teanga document
-#[derive(Debug,Clone,PartialEq,Eq,Hash,PartialOrd,Ord)]
+#[derive(Debug,Clone,PartialEq,Eq,Hash,PartialOrd,Ord,Serialize,Deserialize)]
+#[serde(untagged)]
 pub enum TeangaData {
     None,
     String(String),
