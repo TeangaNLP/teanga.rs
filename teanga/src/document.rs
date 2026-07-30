@@ -107,9 +107,22 @@ impl Document {
                     return Ok(character_layer.characters().into_iter().collect());
                 } else if let Some(characters) = character_layer.characters() {
                     let indexes = self.indexes(layer, char_layer, meta)?;
+                    // `indexes` are Unicode character (codepoint) offsets, not byte
+                    // offsets, so they must be mapped to byte offsets before we can
+                    // slice the underlying UTF-8 string.
+                    let char_byte_offsets: Vec<usize> = characters.char_indices()
+                        .map(|(i, _)| i)
+                        .chain(std::iter::once(characters.len()))
+                        .collect();
                     let mut text = Vec::new();
                     for (start, end) in indexes {
-                        text.push(&characters[start as usize..end as usize]);
+                        let start_byte = *char_byte_offsets.get(start).ok_or_else(||
+                            TeangaError::ModelError(
+                                format!("Character index {} is out of bounds for layer {}", start, layer)))?;
+                        let end_byte = *char_byte_offsets.get(end).ok_or_else(||
+                            TeangaError::ModelError(
+                                format!("Character index {} is out of bounds for layer {}", end, layer)))?;
+                        text.push(&characters[start_byte..end_byte]);
                     }
                     Ok(text)
                 } else {
@@ -308,6 +321,27 @@ mod tests {
         assert_eq!(doc.text("tokens", corpus.get_meta()).unwrap(), vec!["The", "White", "House", "is", "in", "Washington", "."]);
         eprintln!("{:?}", doc.indexes("entities", "text", corpus.get_meta()));
         assert_eq!(doc.text("entities", corpus.get_meta()).unwrap(), vec!["White House", "Washington"]);
+    }
+
+    #[test]
+    fn test_corpus_layers_non_ascii() {
+        // Regression test for https://github.com/teangaNLP/teanga.rs/issues/7
+        // Span offsets are Unicode character (codepoint) indexes, not UTF-8 byte
+        // indexes, so text containing multi-byte characters must not panic when
+        // resolving a layer's text.
+        let mut corpus = SimpleCorpus::new();
+        corpus.build_layer("text").add().unwrap();
+        corpus.build_layer("tokens")
+            .base("text")
+            .layer_type(LayerType::span)
+            .add().unwrap();
+        let doc = corpus.build_doc()
+            .layer("text", "café résumé test").unwrap()
+            .layer("tokens", vec![(0, 4), (5, 11), (12, 16)]).unwrap()
+            .add().unwrap();
+        let doc = corpus.get_doc_by_id(&doc).unwrap();
+        assert_eq!(doc.text("text", corpus.get_meta()).unwrap(), vec!["café résumé test"]);
+        assert_eq!(doc.text("tokens", corpus.get_meta()).unwrap(), vec!["café", "résumé", "test"]);
     }
 }
 

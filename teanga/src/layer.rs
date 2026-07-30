@@ -334,7 +334,8 @@ impl Layer {
                     if target_layer != layer_name {
                         Err(TeangaError::IndexingError(layer_name.to_string(), target_layer.to_string()))
                     } else {
-                        Ok((0..s.len()).zip(1..s.len() + 1).collect())
+                        let n = s.chars().count();
+                        Ok((0..n).zip(1..n + 1).collect())
                     }
                 } else {
                     Err(TeangaError::ModelError(
@@ -437,7 +438,7 @@ impl Layer {
     /// The data of this layer
     pub fn data(&self, layer_desc : &LayerDesc) -> Vec<TeangaData> {
        match self {
-           Layer::Characters(s) => vec![TeangaData::None; s.len()],
+           Layer::Characters(s) => vec![TeangaData::None; s.chars().count()],
            Layer::L1(indexes) => {
                 if layer_desc.layer_type == LayerType::seq {
                     indexes.iter().map(|i| TeangaData::Link(*i)).collect()
@@ -499,7 +500,7 @@ impl Layer {
     /// Get the number of annotatable elements in this layer
     pub fn len(&self) -> usize {
         match self {
-            Layer::Characters(s) => s.len(),
+            Layer::Characters(s) => s.chars().count(),
             Layer::L1(indexes) => indexes.len(),
             Layer::L2(indexes) => indexes.len(),
             Layer::L3(indexes) => indexes.len(),
