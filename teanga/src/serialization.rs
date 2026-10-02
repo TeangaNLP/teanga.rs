@@ -198,6 +198,45 @@ pub fn read_yaml<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -
     read_yaml_with_config(reader, corpus, SerializationSettings::new())
 }
 
+/// Decodes a stream of UTF-8 bytes into characters, so that the YAML parser
+/// (which takes characters) reads non-ASCII text correctly. Invalid sequences
+/// become U+FFFD.
+struct Utf8Chars<I: Iterator<Item = u8>> {
+    bytes: std::iter::Peekable<I>,
+}
+
+impl<I: Iterator<Item = u8>> Utf8Chars<I> {
+    fn new(bytes: I) -> Self {
+        Utf8Chars { bytes: bytes.peekable() }
+    }
+}
+
+impl<I: Iterator<Item = u8>> Iterator for Utf8Chars<I> {
+    type Item = char;
+
+    fn next(&mut self) -> Option<char> {
+        let first = self.bytes.next()?;
+        let width = match first {
+            0x00..=0x7F => return Some(first as char),
+            0xC2..=0xDF => 2,
+            0xE0..=0xEF => 3,
+            0xF0..=0xF4 => 4,
+            _ => return Some(char::REPLACEMENT_CHARACTER),
+        };
+        let mut buf = [first, 0, 0, 0];
+        for i in 1..width {
+            // Leave a byte that isn't a continuation byte for the next character.
+            match self.bytes.next_if(|b| b & 0xC0 == 0x80) {
+                Some(b) => buf[i] = b,
+                None => return Some(char::REPLACEMENT_CHARACTER),
+            }
+        }
+        Some(std::str::from_utf8(&buf[..width]).ok()
+            .and_then(|s| s.chars().next())
+            .unwrap_or(char::REPLACEMENT_CHARACTER))
+    }
+}
+
 // Read a corpus from YAML with a configuration
 //
 // # Arguments
@@ -206,7 +245,7 @@ pub fn read_yaml<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C) -
 // * `corpus` - The corpus to read into
 // * `settings` - The settings to use
 pub fn read_yaml_with_config<'de, R: Read, C: WriteableCorpus>(reader: R, corpus : &mut C, settings : SerializationSettings) -> Result<(), SerializeError> {
-    let char_iter = reader.bytes().filter_map(Result::ok).map(|b| b as char);
+    let char_iter = Utf8Chars::new(reader.bytes().filter_map(Result::ok));
     let parser = yaml_rust::parser::Parser::new(char_iter);
     let mut reader = YamlStreamReader { parser };
     while let Some((key, value)) = reader.next_entry()? {
@@ -629,6 +668,25 @@ ecWc:
         let mut corpus = SimpleCorpus::new();
         read_yaml("_meta:\n  text:\n    type: characters\nKjco:\n   text: This is a document.\n".as_bytes(), 
             &mut corpus).unwrap();
+    }
+
+    #[test]
+    fn test_read_yaml_utf8() {
+        let data = "_meta:\n  text:\n    type: characters\nScvR:\n  text: Is é seo cáipéis — 😀\n";
+        let mut corpus = SimpleCorpus::new();
+        read_yaml(data.as_bytes(), &mut corpus).unwrap();
+        let doc = corpus.get_doc_by_id("ScvR").unwrap();
+        match doc.content.get("text") {
+            Some(Layer::Characters(text)) => assert_eq!(text, "Is é seo cáipéis — 😀"),
+            other => panic!("unexpected text layer: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_utf8_chars_invalid() {
+        let bytes = vec![b'a', 0xC3, b'b', 0xFF, 0xE2, 0x80, 0x94];
+        let chars: String = Utf8Chars::new(bytes.into_iter()).collect();
+        assert_eq!(chars, "a\u{FFFD}b\u{FFFD}—");
     }
 
     #[test]
