@@ -1,6 +1,6 @@
 [package]
 name = "teanga-py"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 include = [
     "/pyproject.toml",
@@ -17,7 +17,7 @@ extension-module = ["pyo3/extension-module"]
 
 [dependencies]
 teanga = { path = "../teanga", features = ["sled"] }
-pyo3 = "0.24.0"
+pyo3 = "0.30.1"
 sled = "0.34.7"
 base64 = "*"
 sha2 = "*"
@@ -28,7 +28,7 @@ serde_yaml = "0.9.25"
 thiserror = "1.0.24"
 ciborium = "0.2.1"
 regex = "1.10.5"
-reqwest = { version = "0.12.5", features = ["blocking"] }
+reqwest = { version = "0.12.5", default-features = false, features = ["blocking", "rustls-tls"] }
 flate2 = "1.0.29"
 
 [dev-dependencies]
