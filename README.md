@@ -28,23 +28,16 @@ corpus.add_doc(("text", "This is a test."));
 This can also be integrated with the core Python library and provides
 persistence and fast access to the data structures in the Rust library.
 
-You should install the library from the wheels available under the 
-release link.
-
-First you need to determine the platform you are using. The tag should correspond to a download on the release page.
-
-```python
-from packaging.tags import sys_tags
-for tag in sys_tags():
-    print(str(tag))
-```
-
-Then you can install the library using the appropriate wheel file.
+Install it together with the core library from PyPI:
 
 ```bash
-TAG=cp310-cp310-manylinux_2_34_x86_64
-pip install https://github.com/TeangaNLP/teanga2/releases/download/dev-latest-linux/teanga-0.1.0-$TAG.whl
+pip install teanga[pyo3]
 ```
+
+Prebuilt wheels are available for Linux (x86_64 and aarch64, glibc and
+musl), macOS (Intel and Apple Silicon) and Windows (x64), for CPython 3.10
+and later. On other platforms pip builds from source, which requires a
+[Rust toolchain](https://rustup.rs/).
 
 Then, in your Python code, you can use the Teanga core library 
 by specifying the `db` property as follows:
