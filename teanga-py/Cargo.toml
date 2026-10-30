@@ -2,6 +2,8 @@
 name = "teanga-py"
 version = "0.1.1"
 edition = "2021"
+# Released on PyPI, not crates.io
+publish = false
 include = [
     "/pyproject.toml",
     "/src"

@@ -2,10 +2,14 @@
 name = "teanga"
 version = "0.1.0"
 edition = "2021"
-include = [
-    "/pyproject.toml",
-    "/src"
-]
+description = "A data model and storage format for annotated text corpora"
+license = "Apache-2.0"
+repository = "https://github.com/TeangaNLP/teanga.rs"
+homepage = "https://teanga.io/"
+readme = "../README.md"
+keywords = ["nlp", "corpus", "annotation", "linguistics"]
+categories = ["text-processing", "encoding", "database"]
+include = ["/src", "/LICENSE"]
 
 [features]
 default = []
@@ -19,9 +23,9 @@ name = "teanga"
 
 [dependencies]
 sled = { version = "0.34.7", optional = true }
-base64 = "*"
-sha2 = "*"
-itertools = "*"
+base64 = "0.22"
+sha2 = "0.10"
+itertools = "0.13"
 serde = { version = "1.0.189", features = ["derive"] }
 serde_json = "1.0.107"
 serde_yml = "0.0.12"
@@ -34,6 +38,9 @@ fjall = { version = "2.4.1", optional = true }
 redb = { version = "2.3.0", optional = true }
 shoco = { package = "shoco-dyn", version = "0.2" }
 yaml-rust = "0.4"
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dev-dependencies]
 tempfile = "3.2.0"

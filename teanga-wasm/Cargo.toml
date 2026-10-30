@@ -3,6 +3,8 @@
 name = "teanga-wasm"
 version = "0.1.0"
 edition = "2021"
+# Not released on crates.io
+publish = false
 
 [lib]
 crate-type = ["cdylib"]
