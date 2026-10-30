@@ -17,11 +17,15 @@ teanga = "0.1.0"
 Then, in your Rust code, you can use the Teanga core library as follows:
 
 ```rust
-use teanga::Corpus;
+use teanga::*;
 
-let corpus = Corpus::new();
-corpus.add_doc(("text", "This is a test."));
+let mut corpus = SimpleCorpus::new();
+corpus.build_layer("text").add().unwrap();
+corpus.build_doc().layer("text", "This is a test document").unwrap().add().unwrap();
 ```
+
+For a corpus stored on disk, enable one of the `sled`, `redb` or `fjall`
+features.
 
 ### Faster Smaz compression
 
