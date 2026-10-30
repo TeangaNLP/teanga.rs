@@ -253,7 +253,7 @@ impl PyDiskCorpus {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug,Clone)]
 pub struct PyLayerDesc(LayerDesc);
 
@@ -482,8 +482,10 @@ impl IntoLayer for PyRawLayer {
     }
 }
 
-impl <'py> FromPyObject<'py> for PyRawLayer {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<PyRawLayer> {
+impl <'a, 'py> FromPyObject<'a, 'py> for PyRawLayer {
+    type Error = PyErr;
+
+    fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<PyRawLayer> {
         if let Ok(layer) = ob.extract::<String>() {
             Ok(PyRawLayer(Layer::Characters(layer)))
         } else if let Ok(layer) = ob.extract::<Vec<u32>>() {
@@ -775,8 +777,10 @@ fn vecus2vecu32u32u32str(vs: Vec<Vec<U32OrString>>) -> Result<Vec<(u32, u32, u32
 #[derive(Debug,Clone,PartialEq)]
 pub struct PyLayerType(LayerType);
 
-impl <'py> FromPyObject<'py> for PyLayerType {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<PyLayerType> {
+impl <'a, 'py> FromPyObject<'a, 'py> for PyLayerType {
+    type Error = PyErr;
+
+    fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<PyLayerType> {
         match ob.extract::<String>()?.to_lowercase().as_str() {
             "characters" => Ok(PyLayerType(LayerType::characters)),
             "seq" => Ok(PyLayerType(LayerType::seq)),
@@ -812,8 +816,10 @@ impl<'py> IntoPyObject<'py> for PyLayerType {
 #[derive(Debug,Clone,PartialEq)]
 pub struct PyDataType(DataType);
 
-impl <'py> FromPyObject<'py> for PyDataType {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<PyDataType> {
+impl <'a, 'py> FromPyObject<'a, 'py> for PyDataType {
+    type Error = PyErr;
+
+    fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<PyDataType> {
         match ob.extract::<Vec<String>>() {
             Ok(vals) => return Ok(PyDataType(DataType::Enum(vals))),
             Err(_) => ()

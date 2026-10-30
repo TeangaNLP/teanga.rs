@@ -17,7 +17,7 @@ extension-module = ["pyo3/extension-module"]
 
 [dependencies]
 teanga = { path = "../teanga", features = ["sled"] }
-pyo3 = "0.24.0"
+pyo3 = "0.30.1"
 sled = "0.34.7"
 base64 = "*"
 sha2 = "*"
