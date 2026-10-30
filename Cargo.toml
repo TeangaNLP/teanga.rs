@@ -2,6 +2,18 @@
 members = ["teanga", "teanga-py", "teanga-cli","teanga-wasm"]
 resolver = "2"
 
+# Size-optimised build for teanga-wasm (wasm-pack build --profile wasm-release).
+# Cargo only reads profiles from the workspace root, and these settings
+# shouldn't apply to the other crates: with panic = "abort", a panic in the
+# Python extension would crash Python instead of raising an exception
+[profile.wasm-release]
+inherits = "release"
+opt-level = "s"          # Optimize for size
+lto = true              # Link Time Optimization
+codegen-units = 1       # Single codegen unit for better optimization
+panic = "abort"         # Smaller binary size
+strip = true           # Strip debug symbols
+
 # Builds from this repository (including the PyPI wheels) use the faster
 # trie-based smaz with the decompress bounds fix. This is ignored when
 # teanga is published, so crates.io users get smaz from crates.io; see
