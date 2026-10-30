@@ -23,6 +23,8 @@ pub trait StringCompression {
 pub enum StringCompressionError {
     #[error("Smaz Error: {0}")]
     SmazError(#[from] smaz::DecompressError),
+    #[error("Shoco Error: {0}")]
+    ShocoError(#[from] shoco::DecompressError),
     #[error("UTF-8 Error: {0}")]
     Utf8Error(#[from] std::string::FromUtf8Error),
 }
@@ -94,14 +96,16 @@ impl StringCompression for ShocoCompression {
     }
 
     fn decompress(&self, input: &[u8]) -> StringCompressionResult<String> {
-        let s = shoco::decompress(input, &self.0)?;
-        Ok(s.to_string())
+        Ok(shoco::decompress(input, &self.0)?)
     }
 }
 
 impl ShocoCompression {
+    /// The default model, which is stored in Cuac files as type 2 without
+    /// the model itself. This is the model shoco used before 0.2 (not the
+    /// C implementation's model), so that existing files can still be read
     pub fn default() -> ShocoCompression {
-        ShocoCompression(shoco::ShocoModel::default())
+        ShocoCompression(shoco::ShocoModel::legacy_default())
     }
 
     pub fn from_corpus<'a>(docs : &mut Box<dyn Iterator<Item=TeangaResult<Document>> + 'a>, size : usize) -> Result<ShocoCompression, CuacWriteError> {
@@ -374,6 +378,33 @@ mod tests {
     #[test]
     fn test_shoco_default_compression() {
         test_compression(StringCompressionMethod::ShocoDefault);
+    }
+
+    /// Cuac files with the default Shoco model don't store the model, so
+    /// the default must still decode data written by shoco 0.1
+    #[test]
+    fn test_shoco_default_reads_shoco_0_1() {
+        let written_by_0_1 = [143, 32, 200, 216, 32, 145, 32, 200, 16, 107, 32, 229, 32, 9, 60,
+            188, 100, 32, 97, 222, 129, 32, 151, 119, 32, 148, 32, 217, 2, 100, 32, 149, 118, 101,
+            32, 145, 32, 156, 235, 145, 195, 5];
+        assert_eq!(ShocoCompression::default().decompress(&written_by_0_1).unwrap(),
+            "of time to think undisturbed about how he would have to re-arrange");
+    }
+
+    #[test]
+    fn test_shoco_malformed_input() {
+        let model = ShocoCompression::default();
+        for input in [&[0x00][..], &[0xc0], &[0xe0, 0x00, 0x00], &[0xf0, 0x00, 0x00, 0x00]] {
+            assert!(matches!(model.decompress(input), Err(StringCompressionError::ShocoError(_))),
+                "{:?}", input);
+        }
+        // No input of up to two bytes may panic
+        for a in 0..=255u8 {
+            let _ = model.decompress(&[a]);
+            for b in 0..=255u8 {
+                let _ = model.decompress(&[a, b]);
+            }
+        }
     }
 
     #[test]
