@@ -23,6 +23,22 @@ let corpus = Corpus::new();
 corpus.add_doc(("text", "This is a test."));
 ```
 
+### Faster Smaz compression
+
+Teanga uses [smaz](https://crates.io/crates/smaz) to compress strings in the
+Cuac format. Compression is 12–41× faster with an improved version that is
+awaiting review upstream
+([silentsokolov/rust-smaz#2–#4](https://github.com/silentsokolov/rust-smaz/pulls)).
+The output is identical, so files are compatible either way. To use it, add
+the following to your own `Cargo.toml`:
+
+```toml
+[patch.crates-io]
+smaz = { git = "https://github.com/jmccrae/rust-smaz" }
+```
+
+The Python wheels already use this version.
+
 ## Usage (Python)
 
 This can also be integrated with the core Python library and provides

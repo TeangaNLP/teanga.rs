@@ -53,9 +53,33 @@ impl StringCompression for SmazCompression {
     }
 
     fn decompress(&self, input: &[u8]) -> StringCompressionResult<String> {
+        check_smaz_input(input)?;
         let bytes = smaz::decompress(input)?;
         let s = String::from_utf8(bytes)?;
         Ok(s)
+    }
+}
+
+/// Check that the input does not end partway through a verbatim byte (254)
+/// or verbatim run (255). smaz 0.1.0 on crates.io panics on such input
+/// instead of returning an error; this can be removed once a fixed release
+/// is required.
+fn check_smaz_input(input: &[u8]) -> Result<(), smaz::DecompressError> {
+    let mut i = 0;
+    while i < input.len() {
+        i += match input[i] {
+            254 => 2,
+            255 => match input.get(i + 1) {
+                Some(&n) => n as usize + 3,
+                None => return Err(smaz::DecompressError),
+            },
+            _ => 1,
+        };
+    }
+    if i == input.len() {
+        Ok(())
+    } else {
+        Err(smaz::DecompressError)
     }
 }
 
@@ -329,6 +353,22 @@ mod tests {
     #[test]
     fn test_smaz_compression() {
         test_compression(StringCompressionMethod::Smaz);
+    }
+
+    #[test]
+    fn test_smaz_truncated_input() {
+        for input in [&[254][..], &[77, 254], &[255], &[255, 0], &[255, 3, b'a', b'b', b'c']] {
+            assert!(SmazCompression.decompress(input).is_err(), "{:?}", input);
+        }
+        assert_eq!(SmazCompression.decompress(&[254, b'a']).unwrap(), "a");
+        assert_eq!(SmazCompression.decompress(&[255, 1, b'a', b'b']).unwrap(), "ab");
+        // No input of up to two bytes may panic
+        for a in 0..=255u8 {
+            let _ = SmazCompression.decompress(&[a]);
+            for b in 0..=255u8 {
+                let _ = SmazCompression.decompress(&[a, b]);
+            }
+        }
     }
 
     #[test]
