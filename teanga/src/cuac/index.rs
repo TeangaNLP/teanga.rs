@@ -108,7 +108,7 @@ impl Index {
     }
 
     /// Get the vector of strings directly
-    pub fn vec(&self) -> RwLockReadGuard<Vec<String>> {
+    pub fn vec(&self) -> RwLockReadGuard<'_, Vec<String>> {
         self.vec.read().unwrap()
     }
 

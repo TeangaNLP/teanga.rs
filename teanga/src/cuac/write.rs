@@ -190,6 +190,7 @@ pub fn write_cuac_config<'a, W : Write>(
 /// * `out` - The output stream
 /// * `meta` - The metadata for the corpus
 /// * `string_compression` - The string compression method
+#[cfg(any(feature = "sled", feature = "fjall", feature = "redb"))]
 pub fn write_cuac_header_compression<W: Write>(
     out : &mut W, meta : &HashMap<String, LayerDesc>, string_compression : &SupportedStringCompression) -> Result<(), CuacWriteError> {
     out.write("TEANGA".as_bytes())?;
