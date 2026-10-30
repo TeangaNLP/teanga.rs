@@ -1,3 +1,10 @@
 [workspace]
 members = ["teanga", "teanga-py", "teanga-cli","teanga-wasm"]
 resolver = "2"
+
+# Builds from this repository (including the PyPI wheels) use the faster
+# trie-based smaz with the decompress bounds fix. This is ignored when
+# teanga is published, so crates.io users get smaz from crates.io; see
+# silentsokolov/rust-smaz#1-#4 for the upstream PRs.
+[patch.crates-io]
+smaz = { git = "https://github.com/jmccrae/rust-smaz" }
