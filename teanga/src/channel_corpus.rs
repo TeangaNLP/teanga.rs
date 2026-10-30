@@ -2,6 +2,7 @@ use std::sync::mpsc::{Sender, Receiver, channel};
 use crate::document::Document;
 use crate::{WriteableCorpus, ReadableCorpus, LayerDesc, TeangaResult, IntoLayer, DocumentContent, teanga_id, TeangaYamlError};
 use std::collections::HashMap;
+use std::cell::Cell;
 
 
 pub struct ChannelCorpusSender {
@@ -19,14 +20,17 @@ pub struct ChannelCorpusPrereceiver {
 impl ChannelCorpusPrereceiver {
     pub fn await_meta(self) -> ChannelCorpusReceiver {
         let meta = self.rx2.recv().unwrap();
-        ChannelCorpusReceiver { meta, rx: self.rx }
+        ChannelCorpusReceiver { meta, rx: self.rx, ended: Cell::new(false) }
     }
 }
 
 
 pub struct ChannelCorpusReceiver {
     meta: HashMap<String, LayerDesc>,
-    rx: Receiver<ChannelCorpusMessage>
+    rx: Receiver<ChannelCorpusMessage>,
+    // Set once the sender has closed, so that reading again after the end
+    // returns no documents rather than waiting forever or panicking
+    ended: Cell<bool>
 }
 
 enum ChannelCorpusMessage {
@@ -79,26 +83,32 @@ impl ReadableCorpus for ChannelCorpusReceiver {
     }
 
     fn iter_docs<'a>(&'a self) -> Box<dyn Iterator<Item=TeangaResult<Document>> + 'a> {
-        Box::new(ChannelCorpusIterator { rx: &self.rx }.map(|x| x.map(|(_, doc)| doc)))
+        Box::new(ChannelCorpusIterator { rx: &self.rx, ended: &self.ended }.map(|x| x.map(|(_, doc)| doc)))
     }
     /// Iterate over all documents in the corpus with their IDs
     fn iter_doc_ids<'a>(&'a self) -> Box<dyn Iterator<Item=TeangaResult<(String, Document)>> + 'a> {
-        Box::new(ChannelCorpusIterator { rx: &self.rx })
+        Box::new(ChannelCorpusIterator { rx: &self.rx, ended: &self.ended })
     }
 }
 
 struct ChannelCorpusIterator<'a> {
-    rx: &'a Receiver<ChannelCorpusMessage>
+    rx: &'a Receiver<ChannelCorpusMessage>,
+    ended: &'a Cell<bool>
 }
 
 impl Iterator for ChannelCorpusIterator<'_> {
     type Item = TeangaResult<(String, Document)>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match self.rx.recv().unwrap() {
-                ChannelCorpusMessage::Document((id, doc)) => return Some(Ok((id, doc))),
-                ChannelCorpusMessage::End => return None,
+        if self.ended.get() {
+            return None;
+        }
+        match self.rx.recv() {
+            Ok(ChannelCorpusMessage::Document((id, doc))) => Some(Ok((id, doc))),
+            // The sender may also be dropped without calling close()
+            Ok(ChannelCorpusMessage::End) | Err(_) => {
+                self.ended.set(true);
+                None
             }
         }
     }
@@ -144,6 +154,54 @@ mod test {
             }
         });
     }
+
+    fn text_meta() -> HashMap<String, LayerDesc> {
+        let mut meta = HashMap::new();
+        meta.insert("text".to_string(), LayerDesc::new("text", LayerType::characters, None, None, None, None, None, HashMap::new()).unwrap());
+        meta
+    }
+
+    #[test]
+    fn test_channel_corpus_read_past_end() {
+        let (mut tx, rx) = channel_corpus();
+        tx.set_meta(text_meta()).unwrap();
+        tx.add_doc(vec![("text".to_string(), "bar")]).unwrap();
+        tx.close();
+        drop(tx);
+        let rx = rx.await_meta();
+        let mut iter = rx.iter_doc_ids();
+        assert!(iter.next().is_some());
+        assert!(iter.next().is_none());
+        assert!(iter.next().is_none());
+        assert!(rx.iter_doc_ids().next().is_none());
+    }
+
+    #[test]
+    fn test_channel_corpus_sender_dropped_without_close() {
+        let (mut tx, rx) = channel_corpus();
+        tx.set_meta(text_meta()).unwrap();
+        tx.add_doc(vec![("text".to_string(), "bar")]).unwrap();
+        drop(tx);
+        let rx = rx.await_meta();
+        assert_eq!(rx.iter_docs().count(), 1);
+    }
+
+    /// Generating a Shoco model reads ahead, and on a small corpus it reads
+    /// to the end before the documents are written (issue #13)
+    #[test]
+    fn test_channel_corpus_write_cuac_generate() {
+        let (mut tx, rx) = channel_corpus();
+        tx.set_meta(text_meta()).unwrap();
+        tx.add_doc(vec![("text".to_string(), "bar")]).unwrap();
+        tx.add_doc(vec![("text".to_string(), "baz")]).unwrap();
+        tx.close();
+        drop(tx);
+        let rx = rx.await_meta();
+        let mut data = Vec::new();
+        crate::write_cuac_with_config(&mut data, &rx, &crate::CuacConfig::new()
+            .with_string_compression(crate::StringCompressionMethod::GenerateShocoModel(1000))).unwrap();
+        let mut corpus = crate::SimpleCorpus::new();
+        crate::read_cuac(&mut data.as_slice(), &mut corpus).unwrap();
+        assert_eq!(corpus.iter_docs().count(), 2);
+    }
 }
-
-
