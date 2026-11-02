@@ -2,6 +2,14 @@
 name = "teanga-cli"
 version = "0.1.0"
 edition = "2021"
+description = "Command-line tool to convert, load and view Teanga corpora"
+license = "Apache-2.0"
+repository = "https://github.com/TeangaNLP/teanga.rs"
+homepage = "https://teanga.io/"
+readme = "README.md"
+keywords = ["nlp", "corpus", "annotation", "linguistics", "cli"]
+categories = ["command-line-utilities", "text-processing"]
+include = ["/src", "/README.md", "/LICENSE"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
