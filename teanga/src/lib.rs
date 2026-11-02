@@ -93,7 +93,7 @@ pub trait Corpus: WriteableCorpus + ReadableCorpus {
     /// # Returns
     ///
     /// A builder object
-    fn build_layer(&mut self, name: &str) -> crate::layer_builder::LayerBuilderImpl<Self>
+    fn build_layer(&mut self, name: &str) -> crate::layer_builder::LayerBuilderImpl<'_, Self>
     where
         Self: Sized,
     {

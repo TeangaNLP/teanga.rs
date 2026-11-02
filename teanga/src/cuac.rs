@@ -10,10 +10,17 @@ mod cuac_index;
 mod type_index;
 mod write;
 
-pub use write::{write_cuac, write_cuac_with_config, write_cuac_header, write_cuac_config, write_cuac_header_compression, write_cuac_doc, doc_content_to_bytes, CuacWriteError};
-pub use read::{read_cuac, read_cuac_header, read_cuac_doc, bytes_to_doc, CuacReadError};
+pub use write::{write_cuac, write_cuac_with_config, write_cuac_header, write_cuac_config, write_cuac_doc, doc_content_to_bytes, CuacWriteError};
+pub use read::{read_cuac, bytes_to_doc, CuacReadError};
 pub use index::{Index, IndexResult};
-pub use string::{StringCompression, SupportedStringCompression, StringCompressionError, NoCompression, SmazCompression, ShocoCompression};
+pub use string::{StringCompression, StringCompressionError, NoCompression, SmazCompression, ShocoCompression};
+// Only used by DiskCorpus
+#[cfg(any(feature = "sled", feature = "fjall", feature = "redb"))]
+pub use write::write_cuac_header_compression;
+#[cfg(any(feature = "sled", feature = "fjall", feature = "redb"))]
+pub use read::{read_cuac_header, read_cuac_doc};
+#[cfg(any(feature = "sled", feature = "fjall", feature = "redb"))]
+pub use string::SupportedStringCompression;
 
 /// A Cuac Result type
 pub type CuacResult<T> = Result<T, CuacError>;

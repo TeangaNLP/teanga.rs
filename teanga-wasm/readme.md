@@ -5,7 +5,7 @@ To compile locally,
 ```
 cd teanga-wasm
 
-wasm-pack build --target web --out-dir pkg --release
+wasm-pack build --target web --out-dir pkg --profile wasm-release
 
 ```
 
